@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
@@ -120,6 +119,18 @@ func TestTrackerToDispatcherEndToEnd(t *testing.T) {
 	}
 	defer tracker.Close(websocket.StatusNormalClosure, "test complete")
 
+	var presence struct {
+		Type      string `json:"type"`
+		VehicleID string `json:"vehicle_id"`
+		Connected bool   `json:"connected"`
+	}
+	if err := wsjson.Read(ctx, dispatch, &presence); err != nil {
+		t.Fatalf("read presence broadcast: %v", err)
+	}
+	if presence.Type != "presence" || presence.VehicleID == "" || !presence.Connected {
+		t.Fatalf("unexpected presence event: %+v", presence)
+	}
+
 	fix := store.Location{
 		TrackingSessionID: "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
 		SequenceNumber:    1,
@@ -170,6 +181,25 @@ func TestTrackerToDispatcherEndToEnd(t *testing.T) {
 	}
 	if len(fleet.Vehicles) != 1 || fleet.Vehicles[0].Location == nil || fleet.Vehicles[0].Location.SequenceNumber != 1 {
 		t.Fatalf("persisted fleet snapshot missing fix: %+v", fleet.Vehicles)
+	}
+
+	historyResp, err := browser.Get(server.URL + "/api/v1/vehicles/" + fleet.Vehicles[0].VehicleID + "/history?hours=1")
+	if err != nil {
+		t.Fatalf("read playback history: %v", err)
+	}
+	defer historyResp.Body.Close()
+	if historyResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(historyResp.Body)
+		t.Fatalf("history status %d: %s", historyResp.StatusCode, body)
+	}
+	var history struct {
+		Locations []store.Location `json:"locations"`
+	}
+	if err := json.NewDecoder(historyResp.Body).Decode(&history); err != nil {
+		t.Fatalf("decode playback history: %v", err)
+	}
+	if len(history.Locations) == 0 || history.Locations[len(history.Locations)-1].SequenceNumber != 1 {
+		t.Fatalf("playback history missing persisted fix: %+v", history.Locations)
 	}
 
 	if err := wsjson.Write(ctx, tracker, fix); err != nil {
