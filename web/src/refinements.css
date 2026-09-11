@@ -1,0 +1,164 @@
+/* Final operational UI pass: flatten decoration, emphasize data, and keep controls quiet. */
+
+:root {
+  --focus: #5faaa4;
+}
+
+body,
+button,
+input,
+select {
+  font-variant-numeric: tabular-nums;
+}
+
+.section-kicker {
+  text-transform: none;
+  letter-spacing: .04em;
+  font-weight: 600;
+}
+
+.topbar,
+.map-toolbar,
+.playback-panel {
+  background: #0c1218;
+}
+
+.vehicle-row {
+  border-left: 2px solid transparent;
+}
+
+.vehicle-row.selected {
+  border-left-color: var(--focus);
+  background: #141b22;
+  box-shadow: none;
+}
+
+.vehicle-row:hover {
+  background: #121920;
+}
+
+.vehicle-quick-data {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9.5px;
+}
+
+.freshness.large {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.vehicle-marker {
+  border-radius: 3px;
+  box-shadow: none;
+  background: #11171d;
+}
+
+.vehicle-marker.selected {
+  border-color: var(--focus);
+  background: #111a1a;
+}
+
+.play-button {
+  border-color: var(--line);
+  background: #151d26;
+  color: var(--text);
+}
+
+.play-button:hover {
+  border-color: #40505d;
+  background: #19222b;
+}
+
+.timeline {
+  height: 18px;
+}
+
+.details-panel {
+  padding: 16px 18px;
+}
+
+.current-position strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+}
+
+.telemetry-grid {
+  display: block;
+  margin-top: 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.telemetry-grid div {
+  display: grid;
+  grid-template-columns: minmax(86px, .8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+}
+
+.telemetry-grid dt {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 10px;
+  color: var(--muted-2);
+}
+
+.telemetry-grid dd {
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.playback-snapshot {
+  margin-top: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.playback-snapshot strong,
+.playback-snapshot span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.maplibregl-ctrl-group,
+.login-panel,
+.primary-button,
+.quiet-button,
+.play-button,
+.playback-actions select,
+.login-panel input {
+  box-shadow: none !important;
+}
+
+@media (max-width: 1180px) and (min-width: 861px) {
+  .workspace {
+    grid-template-columns: 240px minmax(0, 1fr) 270px;
+  }
+
+  .details-panel {
+    display: block;
+  }
+
+  .topbar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .fleet-summary {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .details-panel {
+    display: none;
+  }
+}
