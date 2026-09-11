@@ -21,8 +21,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if ! "${compose[@]}" ps --status running db | grep -q 'db'; then
+if ! "${compose[@]}" ps --status running --services | grep -Fxq 'db'; then
   echo "Database container is not running; backup aborted." >&2
+  exit 1
+fi
+
+if ! "${compose[@]}" exec -T db pg_isready -U ambulance -d ambulance >/dev/null 2>&1; then
+  echo "Database is not ready; backup aborted." >&2
   exit 1
 fi
 
