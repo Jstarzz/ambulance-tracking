@@ -36,6 +36,8 @@ import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import kotlin.math.max
+import kotlin.math.min
 
 class TrackingService : Service(), LocationListener {
     companion object {
@@ -54,6 +56,16 @@ class TrackingService : Service(), LocationListener {
 
         private const val NOTIFICATION_CHANNEL = "tracking"
         private const val NOTIFICATION_ID = 1001
+
+        // Vehicle tracking should follow real movement without drawing the normal
+        // 10-30 m GNSS wander seen while a phone is stationary.
+        private const val MIN_FIX_INTERVAL_MS = 800L
+        private const val STATIONARY_HEARTBEAT_MS = 15_000L
+        private const val MAX_ACCEPTABLE_ACCURACY_M = 50f
+        private const val STATIONARY_SPEED_MPS = 1.5f
+        private const val MIN_STATIONARY_RADIUS_M = 8f
+        private const val MAX_STATIONARY_RADIUS_M = 30f
+        private const val MAX_PLAUSIBLE_SPEED_MPS = 70f
     }
 
     private val client = OkHttpClient.Builder()
@@ -72,6 +84,7 @@ class TrackingService : Service(), LocationListener {
     private val trackingSessionId = UUID.randomUUID().toString()
     private var sequenceNumber = 0L
     private var lastAcceptedElapsedMs = 0L
+    private var lastAcceptedLocation: Location? = null
     private var reconnectDelayMs = 1_000L
     private var reconnectScheduled = false
     private var started = false
@@ -117,18 +130,59 @@ class TrackingService : Service(), LocationListener {
 
     override fun onLocationChanged(location: Location) {
         val nowElapsed = SystemClock.elapsedRealtime()
-        if (nowElapsed - lastAcceptedElapsedMs < 800L) return
+        if (nowElapsed - lastAcceptedElapsedMs < MIN_FIX_INTERVAL_MS) return
+        if (location.hasAccuracy() && location.accuracy > MAX_ACCEPTABLE_ACCURACY_M) return
+
+        val accepted = stabilizeLocation(location, nowElapsed) ?: return
         lastAcceptedElapsedMs = nowElapsed
+        lastAcceptedLocation = Location(accepted)
 
         val sequence = sequenceNumber++
         ioExecutor.execute {
-            val payload = buildLocationPayload(location, sequence)
+            val payload = buildLocationPayload(accepted, sequence)
             pendingStore.enqueue(trackingSessionId, sequence, payload.toString())
             socket?.send(payload.toString())
             publishTelemetry(
                 status = if (socket != null) "Live" else "Offline — buffering",
-                location = location,
+                location = accepted,
             )
+        }
+    }
+
+    private fun stabilizeLocation(candidate: Location, nowElapsed: Long): Location? {
+        val previous = lastAcceptedLocation ?: return Location(candidate)
+        val elapsedSeconds = ((nowElapsed - lastAcceptedElapsedMs).coerceAtLeast(1L)) / 1000f
+        val distanceM = previous.distanceTo(candidate)
+        val impliedSpeedMps = distanceM / elapsedSeconds
+
+        // Drop one-off teleports that cannot plausibly be an ambulance movement.
+        if (impliedSpeedMps > MAX_PLAUSIBLE_SPEED_MPS &&
+            (!candidate.hasSpeed() || candidate.speed < MAX_PLAUSIBLE_SPEED_MPS * 0.75f)
+        ) {
+            return null
+        }
+
+        val previousAccuracy = if (previous.hasAccuracy()) previous.accuracy else MIN_STATIONARY_RADIUS_M
+        val candidateAccuracy = if (candidate.hasAccuracy()) candidate.accuracy else MIN_STATIONARY_RADIUS_M
+        val stationaryRadius = min(
+            MAX_STATIONARY_RADIUS_M,
+            max(MIN_STATIONARY_RADIUS_M, max(previousAccuracy, candidateAccuracy)),
+        )
+        val reportedSpeed = if (candidate.hasSpeed()) candidate.speed else impliedSpeedMps
+        val looksStationary = reportedSpeed < STATIONARY_SPEED_MPS && distanceM <= stationaryRadius
+
+        if (!looksStationary) return Location(candidate)
+
+        // While stationary, don't turn GNSS uncertainty into a scribbled route.
+        // Keep a stable coordinate and only emit a low-rate heartbeat so the
+        // backend still receives fresh telemetry without a fake path.
+        if (nowElapsed - lastAcceptedElapsedMs < STATIONARY_HEARTBEAT_MS) return null
+
+        return Location(candidate).apply {
+            latitude = previous.latitude
+            longitude = previous.longitude
+            speed = 0f
+            if (previous.hasBearing()) bearing = previous.bearing
         }
     }
 
@@ -141,11 +195,18 @@ class TrackingService : Service(), LocationListener {
 
         val looper = locationThread.looper
         try {
-            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            val gpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+            val networkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+
+            if (gpsEnabled) {
+                // Prefer GNSS for a vehicle tracker. Mixing NETWORK_PROVIDER fixes
+                // with GPS while outdoors is a common source of visible jumps.
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1_000L, 0f, this, looper)
-            }
-            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+            } else if (networkEnabled) {
+                // Network location is a fallback only when GPS itself is unavailable.
                 locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3_000L, 0f, this, looper)
+            } else {
+                publishTelemetry("Location provider unavailable")
             }
         } catch (_: SecurityException) {
             publishTelemetry("Location permission missing")
@@ -390,6 +451,7 @@ class TrackingService : Service(), LocationListener {
         socket?.close(1000, "tracking stopped")
         socket = null
         accessToken = null
+        lastAcceptedLocation = null
         locationThread.quitSafely()
         ioExecutor.shutdown()
         pendingStore.close()
