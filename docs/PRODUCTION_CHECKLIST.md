@@ -74,7 +74,7 @@ For a provisioned vehicle, run on the application VM:
 ./scripts/rotate-device-key.sh AMB-01
 ```
 
-The script prompts twice for the replacement key without echoing it, hashes the key locally, and updates exactly one active tracker record. The plaintext replacement is never printed. Update the physical phone with the same replacement key before its next authentication. Existing short-lived device sessions may remain usable until they expire, so treat rotation as a controlled maintenance action.
+The script prompts twice for the replacement key without echoing it, hashes the key locally, updates exactly one active tracker record, and revokes that device's existing session tokens immediately. The plaintext replacement is never printed. Update the physical phone with the same replacement key before reconnecting.
 
 ## Stable Android signing
 
