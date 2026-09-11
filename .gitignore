@@ -1,5 +1,9 @@
 .env
 *.log
+*.jks
+*.keystore
+*.p12
+*.pfx
 bin/
 dist/
 web/node_modules/
