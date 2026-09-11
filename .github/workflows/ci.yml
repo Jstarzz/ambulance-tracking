@@ -11,6 +11,22 @@ permissions:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5-alpine
+        env:
+          POSTGRES_DB: ambulance
+          POSTGRES_USER: ambulance
+          POSTGRES_PASSWORD: integration-test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ambulance -d ambulance"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://ambulance:integration-test@localhost:5432/ambulance?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -20,7 +36,7 @@ jobs:
       - run: go mod tidy
       - run: test -z "$(gofmt -l .)"
       - run: go vet ./...
-      - run: go test ./...
+      - run: go test ./... -count=1
       - run: go build ./cmd/server
 
   web:
