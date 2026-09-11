@@ -18,7 +18,7 @@ fail=0
 
 check_container() {
   local service="$1"
-  if "${compose[@]}" ps --status running "$service" | grep -q "$service"; then
+  if "${compose[@]}" ps --status running --services | grep -Fxq "$service"; then
     printf 'OK   container %-12s running\n' "$service"
   else
     printf 'FAIL container %-12s not running\n' "$service" >&2
