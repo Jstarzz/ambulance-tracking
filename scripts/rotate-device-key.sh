@@ -54,6 +54,13 @@ WITH changed AS (
     AND v.code = :'vehicle_code'
     AND d.active = true
   RETURNING d.id
+), revoked AS (
+  UPDATE device_sessions s
+  SET revoked_at = now()
+  FROM changed c
+  WHERE s.device_id = c.id
+    AND s.revoked_at IS NULL
+  RETURNING s.id
 )
 SELECT count(*) FROM changed;
 SQL
@@ -65,4 +72,4 @@ if [[ "$updated" != "1" ]]; then
   exit 1
 fi
 
-echo "Rotated device key for $vehicle_code. Update the physical tracker with the new key before its next authentication."
+echo "Rotated device key for $vehicle_code and revoked existing device sessions. Update the physical tracker with the new key before reconnecting."
