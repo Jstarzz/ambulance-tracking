@@ -66,6 +66,7 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/login", a.login)
 	mux.HandleFunc("POST /api/v1/auth/logout", a.requireUser(a.logout, true))
 	mux.HandleFunc("GET /api/v1/vehicles", a.requireUser(a.vehicles, false))
+	mux.HandleFunc("GET /api/v1/vehicles/{vehicleID}/history", a.requireUser(a.vehicleHistory, false))
 	mux.HandleFunc("GET /api/v1/dispatch/ws", a.requireUser(a.dispatchWS, false))
 	mux.HandleFunc("POST /api/v1/device/session", a.deviceSession)
 	mux.HandleFunc("GET /api/v1/tracker/ws", a.trackerWS)
@@ -78,7 +79,7 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self' wss:; img-src 'self' data: blob: https://tile.openstreetmap.org; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self' wss: https://tiles.openfreemap.org; img-src 'self' data: blob: https://tiles.openfreemap.org; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data: https://tiles.openfreemap.org; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -330,6 +331,8 @@ func (a *App) trackerWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer c.Close(websocket.StatusNormalClosure, "bye")
 	c.SetReadLimit(8 << 10)
+	a.hub.broadcast(map[string]any{"type": "presence", "vehicle_id": d.VehicleID, "connected": true})
+	defer a.hub.broadcast(map[string]any{"type": "presence", "vehicle_id": d.VehicleID, "connected": false})
 	a.store.Audit(r.Context(), "device", d.ID, "tracker.connect", "vehicle", d.VehicleID, clientIP(r), "success", nil)
 	nextAuthCheck := time.Now().Add(30 * time.Second)
 	for {
