@@ -320,6 +320,7 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/connectionHint"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="3dp"
@@ -327,11 +328,22 @@
             android:textColor="@color/app_muted"
             android:textSize="11sp" />
 
+        <Button
+            android:id="@+id/configToggleButton"
+            android:layout_width="match_parent"
+            android:layout_height="42dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_button_quiet"
+            android:text="Hide configuration"
+            android:textAllCaps="false"
+            android:textColor="@color/app_text"
+            android:textSize="12sp" />
+
         <EditText
             android:id="@+id/serverUrl"
             android:layout_width="match_parent"
             android:layout_height="46dp"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="8dp"
             android:background="@drawable/bg_input"
             android:hint="https://tracking.example.org"
             android:inputType="textUri"
