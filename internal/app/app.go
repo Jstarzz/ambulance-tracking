@@ -27,10 +27,11 @@ type Config struct {
 }
 
 type App struct {
-	store *store.Store
-	cfg   Config
-	log   *slog.Logger
-	hub   *Hub
+	store       *store.Store
+	cfg         Config
+	log         *slog.Logger
+	hub         *Hub
+	authLimiter *fixedWindowLimiter
 }
 
 type Hub struct {
@@ -56,7 +57,7 @@ func (h *Hub) broadcast(v any) {
 }
 
 func New(s *store.Store, cfg Config, log *slog.Logger) *App {
-	return &App{store: s, cfg: cfg, log: log, hub: NewHub()}
+	return &App{store: s, cfg: cfg, log: log, hub: NewHub(), authLimiter: newFixedWindowLimiter()}
 }
 
 func (a *App) Routes() http.Handler {
@@ -77,10 +78,11 @@ func securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self' wss:; img-src 'self' data: https://tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self' wss:; img-src 'self' data: blob: https://tile.openstreetmap.org; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
+
 func requestLog(next http.Handler, log *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -94,11 +96,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
+
 func readJSON(r *http.Request, v any) error {
 	dec := json.NewDecoder(io.LimitReader(r.Body, 32<<10))
 	dec.DisallowUnknownFields()
 	return dec.Decode(v)
 }
+
 func randomToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -106,14 +110,24 @@ func randomToken() (string, error) {
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
+
 func clientIP(r *http.Request) net.IP {
-	if v := r.Header.Get("CF-Connecting-IP"); v != "" {
+	if v := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); v != "" {
 		if ip := net.ParseIP(v); ip != nil {
 			return ip
 		}
 	}
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	return net.ParseIP(host)
+	if v := r.Header.Get("X-Forwarded-For"); v != "" {
+		parts := strings.Split(v, ",")
+		if ip := net.ParseIP(strings.TrimSpace(parts[len(parts)-1])); ip != nil {
+			return ip
+		}
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return net.ParseIP(host)
+	}
+	return net.ParseIP(r.RemoteAddr)
 }
 
 func (a *App) health(w http.ResponseWriter, r *http.Request) {
@@ -127,6 +141,14 @@ func (a *App) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) login(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if !a.authLimiter.allow("login:"+ip.String(), 10, time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		a.store.Audit(r.Context(), "user", "", "login", "session", "", ip, "rate_limited", nil)
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many authentication attempts"})
+		return
+	}
+
 	var in struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -137,20 +159,28 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 	}
 	u, err := a.store.AuthenticateUser(r.Context(), in.Username, in.Password)
 	if err != nil {
-		a.store.Audit(r.Context(), "user", in.Username, "login", "session", "", clientIP(r), "denied", nil)
+		a.store.Audit(r.Context(), "user", in.Username, "login", "session", "", ip, "denied", nil)
 		time.Sleep(250 * time.Millisecond)
 		writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
 		return
 	}
-	token, _ := randomToken()
-	csrf, _ := randomToken()
+	token, err := randomToken()
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "session creation failed"})
+		return
+	}
+	csrf, err := randomToken()
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "session creation failed"})
+		return
+	}
 	expires := time.Now().Add(a.cfg.UserSessionTTL)
 	if err := a.store.CreateUserSession(r.Context(), u.ID, token, csrf, expires); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "session creation failed"})
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: "ambulance_session", Value: token, Path: "/", HttpOnly: true, Secure: a.cfg.SecureCookies, SameSite: http.SameSiteStrictMode, Expires: expires, MaxAge: int(a.cfg.UserSessionTTL.Seconds())})
-	a.store.Audit(r.Context(), "user", u.ID, "login", "session", "", clientIP(r), "success", nil)
+	a.store.Audit(r.Context(), "user", u.ID, "login", "session", "", ip, "success", nil)
 	writeJSON(w, 200, map[string]any{"user": u, "csrf_token": csrf, "expires_at": expires})
 }
 
@@ -162,6 +192,7 @@ func (a *App) sessionUser(r *http.Request) (store.User, string, error) {
 	u, err := a.store.UserFromSession(r.Context(), c.Value)
 	return u, c.Value, err
 }
+
 func (a *App) requireUser(next http.HandlerFunc, csrf bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u, token, err := a.sessionUser(r)
@@ -195,6 +226,7 @@ func (a *App) logout(w http.ResponseWriter, r *http.Request) {
 	a.store.Audit(r.Context(), "user", u.ID, "logout", "session", "", clientIP(r), "success", nil)
 	w.WriteHeader(http.StatusNoContent)
 }
+
 func (a *App) vehicles(w http.ResponseWriter, r *http.Request) {
 	u := userFromContext(r.Context())
 	vs, err := a.store.VehicleSnapshots(r.Context())
@@ -207,6 +239,14 @@ func (a *App) vehicles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) deviceSession(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if !a.authLimiter.allow("device:"+ip.String(), 20, time.Minute) {
+		w.Header().Set("Retry-After", "60")
+		a.store.Audit(r.Context(), "device", "", "device.session.create", "device", "", ip, "rate_limited", nil)
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": "too many authentication attempts"})
+		return
+	}
+
 	var in struct {
 		VehicleCode string `json:"vehicle_code"`
 		DeviceKey   string `json:"device_key"`
@@ -217,17 +257,21 @@ func (a *App) deviceSession(w http.ResponseWriter, r *http.Request) {
 	}
 	d, err := a.store.DeviceByVehicleCodeAndKey(r.Context(), strings.TrimSpace(in.VehicleCode), in.DeviceKey)
 	if err != nil {
-		a.store.Audit(r.Context(), "device", in.VehicleCode, "device.session.create", "device", "", clientIP(r), "denied", nil)
+		a.store.Audit(r.Context(), "device", in.VehicleCode, "device.session.create", "device", "", ip, "denied", nil)
 		writeJSON(w, 401, map[string]string{"error": "invalid device credentials"})
 		return
 	}
-	token, _ := randomToken()
+	token, err := randomToken()
+	if err != nil {
+		writeJSON(w, 500, map[string]string{"error": "session creation failed"})
+		return
+	}
 	expires := time.Now().Add(a.cfg.DeviceSessionTTL)
 	if err := a.store.CreateDeviceSession(r.Context(), d.ID, token, expires); err != nil {
 		writeJSON(w, 500, map[string]string{"error": "session creation failed"})
 		return
 	}
-	a.store.Audit(r.Context(), "device", d.ID, "device.session.create", "device", d.ID, clientIP(r), "success", nil)
+	a.store.Audit(r.Context(), "device", d.ID, "device.session.create", "device", d.ID, ip, "success", nil)
 	writeJSON(w, 200, map[string]any{"access_token": token, "expires_at": expires, "device": d})
 }
 
@@ -239,6 +283,7 @@ func bearer(r *http.Request) string {
 	}
 	return ""
 }
+
 func (a *App) deviceAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token := bearer(r)
@@ -286,6 +331,7 @@ func (a *App) trackerWS(w http.ResponseWriter, r *http.Request) {
 	defer c.Close(websocket.StatusNormalClosure, "bye")
 	c.SetReadLimit(8 << 10)
 	a.store.Audit(r.Context(), "device", d.ID, "tracker.connect", "vehicle", d.VehicleID, clientIP(r), "success", nil)
+	nextAuthCheck := time.Now().Add(30 * time.Second)
 	for {
 		var l store.Location
 		ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
@@ -293,6 +339,13 @@ func (a *App) trackerWS(w http.ResponseWriter, r *http.Request) {
 		cancel()
 		if err != nil {
 			return
+		}
+		if time.Now().After(nextAuthCheck) {
+			if _, err := a.store.DeviceFromSession(r.Context(), token); err != nil {
+				_ = c.Close(websocket.StatusPolicyViolation, "session expired")
+				return
+			}
+			nextAuthCheck = time.Now().Add(30 * time.Second)
 		}
 		if err := validateLocation(&l); err != nil {
 			_ = wsjson.Write(r.Context(), c, map[string]any{"type": "nack", "sequence_number": l.SequenceNumber, "error": err.Error()})
@@ -351,6 +404,11 @@ func (a *App) history(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) dispatchWS(w http.ResponseWriter, r *http.Request) {
 	u := userFromContext(r.Context())
+	sessionCookie, err := r.Cookie("ambulance_session")
+	if err != nil {
+		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+		return
+	}
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{a.cfg.PublicOrigin}, CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
 		return
@@ -359,15 +417,24 @@ func (a *App) dispatchWS(w http.ResponseWriter, r *http.Request) {
 	defer a.hub.remove(c)
 	defer c.Close(websocket.StatusNormalClosure, "bye")
 	a.store.Audit(r.Context(), "user", u.ID, "dispatch.connect", "fleet", "", clientIP(r), "success", nil)
-	ctx := r.Context()
+
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
 	for {
-		if err := c.Ping(ctx); err != nil {
-			return
-		}
 		select {
-		case <-ctx.Done():
+		case <-r.Context().Done():
 			return
-		case <-time.After(25 * time.Second):
+		case <-ticker.C:
+			if _, err := a.store.UserFromSession(r.Context(), sessionCookie.Value); err != nil {
+				_ = c.Close(websocket.StatusPolicyViolation, "session expired")
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			err := c.Ping(ctx)
+			cancel()
+			if err != nil {
+				return
+			}
 		}
 	}
 }
