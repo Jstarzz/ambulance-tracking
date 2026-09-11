@@ -12,6 +12,7 @@ This project has proven the core tracker -> API -> PostgreSQL -> dispatcher path
 - Dispatcher playback is scoped to the newest tracking session so separate app runs are not joined into one fake route.
 - Stationary GNSS wander is filtered and implausible jumps are rejected.
 - CI builds backend, web, Android, and validates deployment Compose files.
+- Backend integration coverage includes two concurrent tracker WebSockets and playback-session isolation.
 
 ## Required field acceptance tests
 
@@ -52,10 +53,24 @@ The script writes a PostgreSQL custom-format dump plus SHA-256 checksum, uses an
 
 A backup stored only on the application VM is not sufficient. Copy or mount the backup directory to separate storage and perform a restore drill before production sign-off.
 
+## Stable Android signing
+
+The normal CI job continues to produce a disposable debug APK. Production installs should use the manual `android-release` workflow so every APK is signed by the same key and can update the previous installation in place.
+
+Create one production keystore offline and store it somewhere recoverable outside GitHub. Add these repository Actions secrets:
+
+- `ANDROID_KEYSTORE_BASE64` — base64 of the keystore file.
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+Then run **Actions -> android-release -> Run workflow**. The workflow assigns a monotonically increasing `versionCode`, builds a signed release APK, uploads it as `ambulance-tracker-release-<run number>`, and deletes the temporary keystore from the runner.
+
+Never commit the keystore or any signing password. Losing the production signing key means future builds cannot update already-installed production copies of the app.
+
 ## Security / deployment work still required
 
 - Rotate any dispatcher/device credentials that have appeared in chat, logs, screenshots, or shell history.
-- Use one stable Android signing key for production APKs; never commit the keystore or passwords.
 - Configure MDM or an equivalent managed-device policy for ambulance phones.
 - Define who can provision/revoke devices and dispatcher users.
 - Add centralized log retention/alerting and protect audit logs from application-level deletion.
