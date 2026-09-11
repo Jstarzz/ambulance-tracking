@@ -66,7 +66,6 @@ function MapView({ vehicles }: { vehicles: Vehicle[] }) {
       container: containerRef.current,
       center: [-62.75, 17.31],
       zoom: 11,
-      attributionControl: true,
       style: {
         version: 8,
         sources: {
@@ -228,12 +227,16 @@ export default function App() {
         setSocketUp(true);
       };
       socket.onmessage = (event) => {
-        const message = JSON.parse(event.data) as LiveMessage;
-        if (message.type !== 'location' || !message.location?.vehicle_id) return;
-        const sample = message.location;
-        setVehicles((current) => current.map((vehicle) =>
-          vehicle.vehicle_id === sample.vehicle_id ? { ...vehicle, location: sample } : vehicle
-        ));
+        try {
+          const message = JSON.parse(event.data) as LiveMessage;
+          if (message.type !== 'location' || !message.location?.vehicle_id) return;
+          const sample = message.location;
+          setVehicles((current) => current.map((vehicle) =>
+            vehicle.vehicle_id === sample.vehicle_id ? { ...vehicle, location: sample } : vehicle
+          ));
+        } catch {
+          // Ignore malformed server frames; reconnect logic handles transport failures.
+        }
       };
       socket.onclose = () => {
         setSocketUp(false);
