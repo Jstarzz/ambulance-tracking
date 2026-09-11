@@ -64,8 +64,6 @@ func main() {
 		Addr:              env("HTTP_ADDR", ":8080"),
 		Handler:           a.Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    32 << 10,
 	}
