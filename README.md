@@ -8,7 +8,7 @@ Real-time ambulance/device tracking prototype for Saint Kitts and Nevis.
 - **API/realtime:** Go, HTTP + WebSockets
 - **Data:** PostgreSQL 17 + PostGIS
 - **Dispatcher:** React 19 + strict TypeScript + MapLibre
-- **Edge:** Caddy/TLS; optional Cloudflare in front only when the deployment's compliance/vendor agreements allow it
+- **Edge:** Caddy on the private Docker network + Cloudflare Tunnel for public ingress
 - **Deployment:** Docker Compose on a single on-island server
 
 The tracker captures location locally before transmission. A lost Wi-Fi/cellular connection therefore does not stop GNSS collection: records remain queued and are replayed idempotently after connectivity returns.
@@ -17,37 +17,42 @@ The tracker captures location locally before transmission. A lost Wi-Fi/cellular
 
 Development happens through pull requests into `dev`; `main` is reserved for release-ready code.
 
-## Run the server/dashboard
+## Production deployment: no public IP required
+
+The preferred deployment uses **Cloudflare Tunnel**. The St. Kitts server only needs outbound Internet access; the application publishes no host HTTP/HTTPS ports.
+
+In Cloudflare, create a remotely-managed tunnel and add a published application such as:
+
+```text
+Hostname:    tracking.example.kn
+Service URL: http://caddy:80
+```
+
+Then on the server:
+
+```bash
+cp .env.cloudflare.example .env
+# Replace every placeholder, including the Cloudflare tunnel token.
+chmod +x scripts/deploy-cloudflare.sh
+./scripts/deploy-cloudflare.sh
+```
+
+See [`docs/CLOUDFLARE.md`](docs/CLOUDFLARE.md) for the exact Cloudflare dashboard, firewall, verification, and local-development steps.
+
+## Local development
 
 ```bash
 cp .env.example .env
-# Replace every example password/key before exposing the host.
-docker compose up --build
+docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
 ```
 
-For local development the sample config uses `localhost` and non-secure browser cookies. For a public deployment set at least:
+Open `http://localhost:8080`.
 
-```text
-APP_HOST=tracking.example.kn
-PUBLIC_ORIGIN=tracking.example.kn
-SECURE_COOKIES=true
-POSTGRES_PASSWORD=<random secret>
-DATABASE_URL=postgres://ambulance:<same secret>@db:5432/ambulance?sslmode=disable
-BOOTSTRAP_ADMIN_USERNAME=<initial admin>
-BOOTSTRAP_ADMIN_PASSWORD=<strong initial password>
-DEMO_VEHICLE_CODE=AMB-01
-DEMO_DEVICE_KEY=<random per-device secret>
-```
-
-Do not publish the PostgreSQL port. The supplied Compose topology keeps it on an internal Docker network.
+PostgreSQL is never published by the supplied Compose topology.
 
 ## Android tracker
 
-Build a debug APK with:
-
-```bash
-gradle -p android :app:assembleDebug
-```
+Build a debug APK with Android Studio or Gradle.
 
 On the phone:
 
@@ -84,7 +89,7 @@ This code implements technical safeguards intended to support a HIPAA-regulated 
 
 **Code alone cannot make an organization or deployment HIPAA compliant.** Before any ePHI is introduced, complete the operational requirements in [`docs/HIPAA.md`](docs/HIPAA.md), including risk analysis, BAAs, access procedures, backups, incident response, device management, production MFA/SSO, and encryption/backup controls.
 
-If Cloudflare will create, receive, maintain, or transmit ePHI, do not put a normal self-serve Cloudflare plan in that path and call it compliant; use a service/plan covered by an executed BAA or keep that traffic off Cloudflare.
+If Cloudflare will create, receive, maintain, or transmit ePHI, do not put a normal self-serve Cloudflare plan in that path and call it compliant. Cloudflare states that it only enters HIPAA BAAs with Enterprise customers.
 
 ## Prototype mapping note
 
