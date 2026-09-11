@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="app_bg">#0B1016</color>
+    <color name="app_panel">#10161D</color>
+    <color name="app_panel_2">#131A22</color>
+    <color name="app_line">#28313B</color>
+    <color name="app_text">#E9EEF3</color>
+    <color name="app_muted">#8E9AA7</color>
+    <color name="app_teal">#55B8AF</color>
+    <color name="app_red">#E26565</color>
+    <color name="icon_background">#0B1016</color>
+</resources>

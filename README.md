@@ -4,14 +4,17 @@ Real-time ambulance/device tracking prototype for Saint Kitts and Nevis.
 
 ## Stack
 
-- **Tracker:** native Android/Kotlin, foreground GNSS service, app-private SQLite offline queue
+- **Tracker:** native Android/Kotlin, foreground GNSS service, app-private SQLite offline queue, MapLibre client map
 - **API/realtime:** Go, HTTP + WebSockets
 - **Data:** PostgreSQL 17 + PostGIS
 - **Dispatcher:** React 19 + strict TypeScript + MapLibre
+- **Maps:** OpenFreeMap dark vector style backed by OpenStreetMap data
 - **Edge:** Caddy on the private Docker network + Cloudflare Tunnel for public ingress
 - **Deployment:** Docker Compose on a single on-island server
 
 The tracker captures location locally before transmission. A lost Wi-Fi/cellular connection therefore does not stop GNSS collection: records remain queued and are replayed idempotently after connectivity returns.
+
+Both the Android tracker and dispatcher show live position updates. The dispatcher centers on a fleet map of provisioned vehicles, receives explicit WebSocket node-presence events, and supports bounded historical route playback for the previous 1, 6, or 24 hours.
 
 ## Repository workflow
 
@@ -59,7 +62,8 @@ On the phone:
 1. Enter the HTTPS server URL, vehicle code, and provisioned device key.
 2. Grant precise location permission.
 3. Tap **Start tracking** while the app is visible. Android starts a location foreground service and displays the required ongoing notification.
-4. Wi-Fi is not required. GNSS continues without internet access; live transmission can use cellular data. If all internet connectivity disappears, fixes remain in the local SQLite queue and replay when the server becomes reachable again.
+4. The client map follows the current GNSS fix and draws the recent on-device trail while tracking is active.
+5. Wi-Fi is not required. GNSS continues without internet access; live transmission can use cellular data. If all internet connectivity disappears, fixes remain in the local SQLite queue and replay when the server becomes reachable again.
 
 Device secrets are encrypted with Android Keystore. Tracker payloads contain vehicle/location telemetry only; there are no patient or clinical fields.
 
@@ -83,6 +87,14 @@ Authorization: Bearer <short-lived token>
 
 Each fix has an immutable `(tracking_session_id, sequence_number)` identity. The server ACKs accepted or duplicate records, allowing the phone to delete only confirmed local queue entries. Backlogged records use `POST /api/v1/tracker/history` in bounded batches.
 
+Authenticated dispatchers receive location and tracker-presence events over `/api/v1/dispatch/ws`. Historical playback uses:
+
+```http
+GET /api/v1/vehicles/{vehicleID}/history?hours=1
+```
+
+`hours` is bounded to 1–24 and large result sets are deterministically down-sampled before they reach the browser.
+
 ## HIPAA boundary
 
 This code implements technical safeguards intended to support a HIPAA-regulated deployment: unique user/device identities, encrypted transport assumptions, secure session handling, audit events, least-exposed networking, replay-safe telemetry, and deliberate exclusion of patient data.
@@ -93,4 +105,4 @@ If Cloudflare will create, receive, maintain, or transmit ePHI, do not put a nor
 
 ## Prototype mapping note
 
-The dispatcher currently uses OpenStreetMap's public raster tile endpoint for light prototype use. Do not treat the public OSM tile service as emergency-grade/offline infrastructure. A production EMS deployment should use an appropriate tile provider or self-host the small Saint Kitts and Nevis map dataset.
+The current client and dispatcher use OpenFreeMap-hosted vector tiles/styles with OpenStreetMap data. This is appropriate for the prototype, but a production EMS deployment should not make emergency operations depend on a free public tile service. For production, use a contracted provider with suitable availability terms or self-host the small Saint Kitts and Nevis vector-tile dataset.
