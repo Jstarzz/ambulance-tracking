@@ -68,3 +68,13 @@ jobs:
         with:
           gradle-version: '8.9'
       - run: gradle -p android :app:assembleDebug
+
+  deployment-config:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n scripts/deploy-cloudflare.sh
+      - run: cp .env.cloudflare.example .env
+      - run: docker compose -f docker-compose.yml -f docker-compose.cloudflare.yml config >/dev/null
+      - run: cp .env.example .env
+      - run: docker compose -f docker-compose.yml -f docker-compose.local.yml config >/dev/null
