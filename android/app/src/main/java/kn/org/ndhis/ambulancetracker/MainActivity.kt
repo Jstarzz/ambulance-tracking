@@ -51,6 +51,8 @@ class MainActivity : Activity() {
     private lateinit var batteryText: TextView
     private lateinit var serverStateText: TextView
     private lateinit var mapUpdateText: TextView
+    private lateinit var connectionHint: TextView
+    private lateinit var configToggleButton: Button
     private lateinit var mapView: MapView
 
     private var map: MapLibreMap? = null
@@ -60,6 +62,7 @@ class MainActivity : Activity() {
     private var firstMapFix = true
     private var pendingStart = false
     private var receiverRegistered = false
+    private var configExpanded = true
 
     private val telemetryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -111,6 +114,8 @@ class MainActivity : Activity() {
         batteryText = findViewById(R.id.batteryText)
         serverStateText = findViewById(R.id.serverStateText)
         mapUpdateText = findViewById(R.id.mapUpdateText)
+        connectionHint = findViewById(R.id.connectionHint)
+        configToggleButton = findViewById(R.id.configToggleButton)
         mapView = findViewById(R.id.mapView)
 
         mapView.onCreate(savedInstanceState)
@@ -127,18 +132,45 @@ class MainActivity : Activity() {
             }
         }
 
-        SecureConfig.load(this)?.let { config ->
-            serverUrl.setText(config.serverUrl)
-            vehicleCode.setText(config.vehicleCode)
-            deviceKey.setText(config.deviceKey)
-            unitTitle.text = config.vehicleCode
-            serverStateText.text = config.serverUrl.removePrefix("https://").removePrefix("http://")
+        val savedConfig = SecureConfig.load(this)
+        if (savedConfig != null) {
+            serverUrl.setText(savedConfig.serverUrl)
+            vehicleCode.setText(savedConfig.vehicleCode)
+            deviceKey.setText(savedConfig.deviceKey)
+            unitTitle.text = savedConfig.vehicleCode
+            serverStateText.text = savedConfig.serverUrl.removePrefix("https://").removePrefix("http://")
+            setConfigExpanded(false)
+        } else {
+            setConfigExpanded(true)
         }
 
+        configToggleButton.setOnClickListener { setConfigExpanded(!configExpanded) }
         findViewById<Button>(R.id.startButton).setOnClickListener { prepareStart() }
         findViewById<Button>(R.id.stopButton).setOnClickListener {
             startService(Intent(this, TrackingService::class.java).setAction(TrackingService.ACTION_STOP))
             renderStatus("Stopped")
+        }
+    }
+
+    private fun setConfigExpanded(expanded: Boolean) {
+        configExpanded = expanded
+        val fieldVisibility = if (expanded) View.VISIBLE else View.GONE
+        serverUrl.visibility = fieldVisibility
+        vehicleCode.visibility = fieldVisibility
+        deviceKey.visibility = fieldVisibility
+        configToggleButton.text = if (expanded) "Hide configuration" else "Edit configuration"
+
+        if (expanded) {
+            connectionHint.text = "Provision this device with its server endpoint and unit credentials."
+            return
+        }
+
+        val code = vehicleCode.text.toString().trim()
+        val host = serverStateText.text.toString().trim()
+        connectionHint.text = when {
+            code.isNotBlank() && host.isNotBlank() -> "$code · $host"
+            code.isNotBlank() -> code
+            else -> "Device configuration saved"
         }
     }
 
@@ -212,7 +244,7 @@ class MainActivity : Activity() {
             routeLine = readyMap.addPolyline(
                 PolylineOptions()
                     .addAll(points)
-                    .color(Color.rgb(36, 199, 182))
+                    .color(Color.rgb(85, 184, 175))
                     .width(4f),
             )
         } else {
@@ -282,8 +314,10 @@ class MainActivity : Activity() {
         }
 
         SecureConfig.save(this, TrackerConfig(url, code, key))
+        vehicleCode.setText(code)
         unitTitle.text = code
         serverStateText.text = url.removePrefix("https://").removePrefix("http://")
+        setConfigExpanded(false)
         if (!hasFineLocation()) {
             pendingStart = true
             requestRuntimePermissions()
