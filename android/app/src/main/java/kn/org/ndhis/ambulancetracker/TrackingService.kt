@@ -374,7 +374,7 @@ class TrackingService : Service(), LocationListener {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return android.app.Notification.Builder(this, NOTIFICATION_CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("EMS Tracker")
             .setContentText(status)
             .setContentIntent(pendingIntent)
