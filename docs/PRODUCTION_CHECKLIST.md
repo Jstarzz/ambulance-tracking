@@ -53,6 +53,16 @@ The script writes a PostgreSQL custom-format dump plus SHA-256 checksum, uses an
 
 A backup stored only on the application VM is not sufficient. Copy or mount the backup directory to separate storage and perform a restore drill before production sign-off.
 
+### Device-key rotation
+
+For a provisioned vehicle, run on the application VM:
+
+```bash
+./scripts/rotate-device-key.sh AMB-01
+```
+
+The script prompts twice for the replacement key without echoing it, hashes the key locally, and updates exactly one active tracker record. The plaintext replacement is never printed. Update the physical phone with the same replacement key before its next authentication. Existing short-lived device sessions may remain usable until they expire, so treat rotation as a controlled maintenance action.
+
 ## Stable Android signing
 
 The normal CI job continues to produce a disposable debug APK. Production installs should use the manual `android-release` workflow so every APK is signed by the same key and can update the previous installation in place.
