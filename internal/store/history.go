@@ -7,7 +7,9 @@ import (
 
 // LocationHistory returns chronological telemetry for dispatcher playback. Large
 // windows are deterministically down-sampled in PostgreSQL so the browser never
-// has to ingest an unbounded 1 Hz trace.
+// has to ingest an unbounded 1 Hz trace. Playback is intentionally scoped to the
+// most recent tracking session in the requested window so independent app runs,
+// simulations, or device restarts are never joined into a fake route.
 func (s *Store) LocationHistory(ctx context.Context, vehicleID string, since time.Time, maxPoints int) ([]Location, error) {
 	if maxPoints < 2 {
 		maxPoints = 2
@@ -17,7 +19,14 @@ func (s *Store) LocationHistory(ctx context.Context, vehicleID string, since tim
 	}
 
 	rows, err := s.pool.Query(ctx, `
-		WITH filtered AS (
+		WITH latest_session AS (
+			SELECT l.tracking_session_id
+			FROM location_events l
+			WHERE l.vehicle_id::text = $1
+				AND l.recorded_at >= $2
+			ORDER BY l.recorded_at DESC
+			LIMIT 1
+		), filtered AS (
 			SELECT
 				l.device_id::text AS device_id,
 				l.vehicle_id::text AS vehicle_id,
@@ -37,7 +46,9 @@ func (s *Store) LocationHistory(ctx context.Context, vehicleID string, since tim
 				count(*) OVER () AS total
 			FROM location_events l
 			JOIN vehicles v ON v.id = l.vehicle_id
-			WHERE l.vehicle_id::text = $1 AND l.recorded_at >= $2
+			JOIN latest_session s ON s.tracking_session_id = l.tracking_session_id
+			WHERE l.vehicle_id::text = $1
+				AND l.recorded_at >= $2
 		), sampled AS (
 			SELECT *
 			FROM filtered
