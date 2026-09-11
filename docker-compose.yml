@@ -28,10 +28,17 @@ services:
     read_only: true
     tmpfs: ["/tmp"]
 
+  web:
+    build: ./web
+    restart: unless-stopped
+    expose: ["80"]
+    networks: [edge]
+    security_opt: ["no-new-privileges:true"]
+
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
-    depends_on: [api]
+    depends_on: [api, web]
     ports: ["80:80", "443:443"]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
