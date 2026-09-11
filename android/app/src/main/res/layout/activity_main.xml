@@ -70,7 +70,7 @@
             <org.maplibre.android.maps.MapView
                 android:id="@+id/mapView"
                 android:layout_width="match_parent"
-                android:layout_height="280dp" />
+                android:layout_height="300dp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -79,7 +79,7 @@
                 android:orientation="horizontal"
                 android:paddingStart="12dp"
                 android:paddingTop="10dp"
-                android:paddingEnd="12dp"
+                android:paddingEnd="10dp"
                 android:paddingBottom="10dp">
 
                 <LinearLayout
@@ -98,21 +98,28 @@
                         android:textStyle="bold" />
 
                     <TextView
+                        android:id="@+id/mapUpdateText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:text="Current position"
+                        android:text="No fix yet"
                         android:textColor="@color/app_muted"
                         android:textSize="10sp" />
                 </LinearLayout>
 
-                <TextView
-                    android:id="@+id/mapUpdateText"
+                <Button
+                    android:id="@+id/recenterButton"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="No fix yet"
-                    android:textColor="@color/app_muted"
-                    android:textSize="10sp" />
+                    android:layout_height="38dp"
+                    android:layout_marginStart="10dp"
+                    android:background="@drawable/bg_button_quiet"
+                    android:minWidth="0dp"
+                    android:paddingStart="14dp"
+                    android:paddingEnd="14dp"
+                    android:text="Center"
+                    android:textAllCaps="false"
+                    android:textColor="@color/app_text"
+                    android:textSize="11sp" />
             </LinearLayout>
         </LinearLayout>
 

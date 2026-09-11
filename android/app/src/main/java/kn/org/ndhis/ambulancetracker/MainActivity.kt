@@ -15,6 +15,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.os.Build
 import android.os.Bundle
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
 import android.widget.Button
@@ -59,6 +60,7 @@ class MainActivity : Activity() {
     private lateinit var mapUpdateText: TextView
     private lateinit var connectionHint: TextView
     private lateinit var configToggleButton: Button
+    private lateinit var recenterButton: Button
     private lateinit var mapView: MapView
 
     private var map: MapLibreMap? = null
@@ -66,6 +68,8 @@ class MainActivity : Activity() {
     private var routeLine: Polyline? = null
     private val trailPoints = ArrayDeque<LatLng>()
     private var firstMapFix = true
+    private var followLocation = true
+    private var lastMapPoint: LatLng? = null
     private var pendingStart = false
     private var receiverRegistered = false
     private var configExpanded = true
@@ -91,7 +95,7 @@ class MainActivity : Activity() {
                 val latitude = intent.getDoubleExtra(TrackingService.EXTRA_LATITUDE, 0.0)
                 val longitude = intent.getDoubleExtra(TrackingService.EXTRA_LONGITUDE, 0.0)
                 coordsText.text = String.format(Locale.US, "%.5f, %.5f", latitude, longitude)
-                mapUpdateText.text = "Live GPS fix"
+                mapUpdateText.text = if (followLocation) "Following location" else "Browsing map"
                 updateMap(LatLng(latitude, longitude))
             }
             if (intent.hasExtra(TrackingService.EXTRA_BATTERY)) {
@@ -122,19 +126,47 @@ class MainActivity : Activity() {
         mapUpdateText = findViewById(R.id.mapUpdateText)
         connectionHint = findViewById(R.id.connectionHint)
         configToggleButton = findViewById(R.id.configToggleButton)
+        recenterButton = findViewById(R.id.recenterButton)
         mapView = findViewById(R.id.mapView)
 
         mapView.onCreate(savedInstanceState)
+        mapView.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN,
+                MotionEvent.ACTION_POINTER_DOWN,
+                MotionEvent.ACTION_MOVE -> {
+                    view.parent?.requestDisallowInterceptTouchEvent(true)
+                    followLocation = false
+                    if (lastMapPoint != null) mapUpdateText.text = "Browsing map"
+                }
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> view.parent?.requestDisallowInterceptTouchEvent(false)
+            }
+            false
+        }
         mapView.getMapAsync { readyMap ->
             map = readyMap
             readyMap.uiSettings.isCompassEnabled = false
             readyMap.uiSettings.isRotateGesturesEnabled = false
+            readyMap.uiSettings.isScrollGesturesEnabled = true
+            readyMap.uiSettings.isZoomGesturesEnabled = true
             readyMap.cameraPosition = CameraPosition.Builder()
                 .target(LatLng(17.31, -62.75))
                 .zoom(10.5)
                 .build()
             readyMap.setStyle(MAP_STYLE) {
                 redrawTrail()
+            }
+        }
+
+        recenterButton.setOnClickListener {
+            followLocation = true
+            val point = lastMapPoint
+            if (point != null) {
+                map?.easeCamera(CameraUpdateFactory.newLatLng(point), 250)
+                mapUpdateText.text = "Following location"
+            } else {
+                mapUpdateText.text = "Waiting for GPS"
             }
         }
 
@@ -212,6 +244,7 @@ class MainActivity : Activity() {
     }
 
     private fun updateMap(point: LatLng) {
+        lastMapPoint = point
         trailPoints.addLast(point)
         while (trailPoints.size > MAX_TRAIL_POINTS) {
             trailPoints.removeFirst()
@@ -221,8 +254,9 @@ class MainActivity : Activity() {
         val readyMap = map ?: return
         if (firstMapFix) {
             firstMapFix = false
+            followLocation = true
             readyMap.easeCamera(CameraUpdateFactory.newLatLngZoom(point, 15.0), 350)
-        } else {
+        } else if (followLocation) {
             readyMap.easeCamera(CameraUpdateFactory.newLatLng(point), 250)
         }
     }
