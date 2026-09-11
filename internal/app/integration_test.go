@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
