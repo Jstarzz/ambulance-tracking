@@ -41,17 +41,30 @@ Run:
 
 It verifies all five containers, PostgreSQL readiness, and the public `/healthz` endpoint without printing deployment secrets.
 
-### Database backups
+### Database backups and restore drills
 
 Run:
 
 ```bash
 BACKUP_DIR=/path/on/off-host-storage ./scripts/backup-db.sh
+./scripts/verify-backup.sh /path/on/off-host-storage/ambulance-YYYYMMDDTHHMMSSZ.dump
 ```
 
-The script writes a PostgreSQL custom-format dump plus SHA-256 checksum, uses an atomic temporary file, and retains 14 days by default. Set `BACKUP_RETENTION_DAYS` to override retention.
+The backup script writes a PostgreSQL custom-format dump plus SHA-256 checksum, uses an atomic temporary file, and retains 14 days by default. Set `BACKUP_RETENTION_DAYS` to override retention.
+
+The restore drill verifies the checksum/archive, creates a uniquely named throwaway database on the same PostgreSQL server, restores the dump there, checks the core tables, prints row counts, then drops the temporary database. It never restores over the live `ambulance` database.
 
 A backup stored only on the application VM is not sufficient. Copy or mount the backup directory to separate storage and perform a restore drill before production sign-off.
+
+### Dispatcher password rotation
+
+Run on the application VM after deploying this revision:
+
+```bash
+./scripts/rotate-dispatcher-password.sh dispatcher
+```
+
+The helper prompts twice without echoing the password, sends it to the internal `/adminctl` binary only over stdin, bcrypt-hashes it, changes the active user's password, and revokes every existing dispatcher session in the same transaction. The plaintext password is never put in argv or a temporary file.
 
 ### Device-key rotation
 
