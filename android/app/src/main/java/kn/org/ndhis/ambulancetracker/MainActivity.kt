@@ -9,7 +9,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -19,6 +22,8 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import org.maplibre.android.MapLibre
+import org.maplibre.android.annotations.Icon
+import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.annotations.Marker
 import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.annotations.Polyline
@@ -30,6 +35,7 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import java.util.ArrayDeque
 import java.util.Locale
+import kotlin.math.roundToInt
 
 class MainActivity : Activity() {
     companion object {
@@ -221,6 +227,23 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun createVehicleIcon(): Icon {
+        val density = resources.displayMetrics.density
+        val size = (18f * density).roundToInt().coerceAtLeast(18)
+        val outline = (2f * density).coerceAtLeast(2f)
+        val radius = size / 2f - outline
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        paint.color = getColor(R.color.app_bg)
+        canvas.drawCircle(size / 2f, size / 2f, radius + outline, paint)
+        paint.color = getColor(R.color.app_teal)
+        canvas.drawCircle(size / 2f, size / 2f, radius, paint)
+
+        return IconFactory.getInstance(this).fromBitmap(bitmap)
+    }
+
     private fun redrawTrail() {
         val readyMap = map ?: return
         val points = trailPoints.toList()
@@ -231,6 +254,7 @@ class MainActivity : Activity() {
             vehicleMarker = readyMap.addMarker(
                 MarkerOptions()
                     .position(points.last())
+                    .icon(createVehicleIcon())
                     .title(vehicleCode.text.toString().ifBlank { "Ambulance" }),
             )
         } else {
