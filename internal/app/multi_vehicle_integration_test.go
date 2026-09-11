@@ -38,9 +38,12 @@ func TestMultipleTrackersAndPlaybackIsolation(t *testing.T) {
 		t.Fatalf("migrate database: %v", err)
 	}
 
+	// BootstrapAdmin intentionally creates only the first user in a deployment.
+	// Reuse the same deterministic bootstrap credentials as integration_test.go so
+	// these tests are independent of execution order while sharing one test DB.
 	const (
-		adminUser = "multi-dispatcher"
-		adminPass = "multi-password-123"
+		adminUser = "integration-dispatcher"
+		adminPass = "integration-password-123"
 		vehicleA  = "AMB-MULTI-A"
 		vehicleB  = "AMB-MULTI-B"
 		deviceA   = "multi-device-a-key-0123456789abcdef"
