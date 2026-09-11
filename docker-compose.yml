@@ -1,3 +1,9 @@
+x-default-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   db:
     image: postgis/postgis:17-3.5-alpine
@@ -14,6 +20,7 @@ services:
       timeout: 3s
       retries: 10
     networks: [internal]
+    logging: *default-logging
 
   api:
     build: .
@@ -27,6 +34,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     read_only: true
     tmpfs: ["/tmp"]
+    logging: *default-logging
 
   web:
     build: ./web
@@ -34,16 +42,34 @@ services:
     expose: ["80"]
     networks: [edge]
     security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *default-logging
 
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped
-    depends_on: [api, web]
+    depends_on:
+      api:
+        condition: service_started
+      web:
+        condition: service_healthy
     expose: ["80"]
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     networks: [edge]
     security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/healthz | grep -q '\"status\":\"ok\"'"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging: *default-logging
 
 networks:
   internal:
