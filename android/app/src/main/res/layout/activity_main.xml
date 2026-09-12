@@ -15,7 +15,7 @@
         android:paddingStart="16dp"
         android:paddingTop="16dp"
         android:paddingEnd="16dp"
-        android:paddingBottom="28dp">
+        android:paddingBottom="32dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -32,19 +32,19 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="EMS Tracker"
+                    android:text="EMS TRACKER"
                     android:textColor="@color/app_muted"
-                    android:textSize="12sp"
+                    android:textSize="10sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:id="@+id/unitTitle"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="Ambulance unit"
+                    android:layout_marginTop="3dp"
+                    android:text="Register this ambulance"
                     android:textColor="@color/app_text"
-                    android:textSize="22sp"
+                    android:textSize="23sp"
                     android:textStyle="bold" />
             </LinearLayout>
 
@@ -53,6 +53,10 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="@drawable/bg_status_idle"
+                android:paddingStart="10dp"
+                android:paddingTop="6dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="6dp"
                 android:text="Stopped"
                 android:textColor="@color/app_muted"
                 android:textSize="10sp"
@@ -62,7 +66,7 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
+            android:layout_marginTop="16dp"
             android:background="@drawable/bg_card"
             android:clipToOutline="true"
             android:orientation="vertical">
@@ -70,7 +74,7 @@
             <org.maplibre.android.maps.MapView
                 android:id="@+id/mapView"
                 android:layout_width="match_parent"
-                android:layout_height="300dp" />
+                android:layout_height="320dp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -123,6 +127,158 @@
             </LinearLayout>
         </LinearLayout>
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/startButton"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_button_primary"
+                android:text="Start tracking"
+                android:textAllCaps="false"
+                android:textColor="#061110"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/stopButton"
+                android:layout_width="0dp"
+                android:layout_height="50dp"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_button_stop"
+                android:text="Stop"
+                android:textAllCaps="false"
+                android:textColor="#ECA4A8"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/setupCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Device setup"
+                android:textColor="@color/app_text"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/connectionHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Enter the one-time enrollment code from the dispatcher admin panel."
+                android:textColor="@color/app_muted"
+                android:textSize="11sp" />
+
+            <LinearLayout
+                android:id="@+id/enrollmentRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical">
+
+                <EditText
+                    android:id="@+id/enrollmentCode"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:background="@drawable/bg_input"
+                    android:hint="ABCD-EFGH"
+                    android:inputType="textCapCharacters"
+                    android:letterSpacing="0.08"
+                    android:maxLength="9"
+                    android:singleLine="true"
+                    android:textColor="@color/app_text"
+                    android:textColorHint="#65717E"
+                    android:textSize="15sp" />
+
+                <Button
+                    android:id="@+id/enrollButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_button_primary"
+                    android:text="Register this device"
+                    android:textAllCaps="false"
+                    android:textColor="#061110"
+                    android:textSize="13sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/configToggleButton"
+                android:layout_width="match_parent"
+                android:layout_height="42dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_button_quiet"
+                android:text="Advanced settings"
+                android:textAllCaps="false"
+                android:textColor="@color/app_text"
+                android:textSize="12sp" />
+
+            <LinearLayout
+                android:id="@+id/advancedFields"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <EditText
+                    android:id="@+id/serverUrl"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_input"
+                    android:hint="https://tracking.example.org"
+                    android:inputType="textUri"
+                    android:singleLine="true"
+                    android:textColor="@color/app_text"
+                    android:textColorHint="#65717E"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/vehicleCode"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_input"
+                    android:hint="Vehicle code (manual setup)"
+                    android:inputType="textCapCharacters"
+                    android:singleLine="true"
+                    android:textColor="@color/app_text"
+                    android:textColorHint="#65717E"
+                    android:textSize="13sp" />
+
+                <EditText
+                    android:id="@+id/deviceKey"
+                    android:layout_width="match_parent"
+                    android:layout_height="46dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_input"
+                    android:hint="Device key (manual setup)"
+                    android:inputType="textPassword"
+                    android:singleLine="true"
+                    android:textColor="@color/app_text"
+                    android:textColorHint="#65717E"
+                    android:textSize="13sp" />
+            </LinearLayout>
+        </LinearLayout>
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -150,23 +306,8 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Speed"
-                        android:textColor="@color/app_muted"
-                        android:textSize="10sp" />
-
-                    <TextView
-                        android:id="@+id/speedText"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:text="—"
-                        android:textColor="@color/app_text"
-                        android:textSize="18sp"
-                        android:textStyle="bold" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Speed" android:textColor="@color/app_muted" android:textSize="10sp" />
+                    <TextView android:id="@+id/speedText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="—" android:textColor="@color/app_text" android:textSize="18sp" android:textStyle="bold" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -174,248 +315,43 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="GPS accuracy"
-                        android:textColor="@color/app_muted"
-                        android:textSize="10sp" />
-
-                    <TextView
-                        android:id="@+id/accuracyText"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:text="—"
-                        android:textColor="@color/app_text"
-                        android:textSize="18sp"
-                        android:textStyle="bold" />
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="GPS accuracy" android:textColor="@color/app_muted" android:textSize="10sp" />
+                    <TextView android:id="@+id/accuracyText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="—" android:textColor="@color/app_text" android:textSize="18sp" android:textStyle="bold" />
                 </LinearLayout>
             </LinearLayout>
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/app_line" />
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/app_line" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="12dp">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Network"
-                        android:textColor="@color/app_muted"
-                        android:textSize="10sp" />
-
-                    <TextView
-                        android:id="@+id/networkText"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:text="—"
-                        android:textColor="@color/app_text"
-                        android:textSize="14sp"
-                        android:textStyle="bold" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:padding="12dp">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Network" android:textColor="@color/app_muted" android:textSize="10sp" />
+                    <TextView android:id="@+id/networkText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="—" android:textColor="@color/app_text" android:textSize="14sp" android:textStyle="bold" />
                 </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Battery"
-                        android:textColor="@color/app_muted"
-                        android:textSize="10sp" />
-
-                    <TextView
-                        android:id="@+id/batteryText"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:text="—"
-                        android:textColor="@color/app_text"
-                        android:textSize="14sp"
-                        android:textStyle="bold" />
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Battery" android:textColor="@color/app_muted" android:textSize="10sp" />
+                    <TextView android:id="@+id/batteryText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="—" android:textColor="@color/app_text" android:textSize="14sp" android:textStyle="bold" />
                 </LinearLayout>
             </LinearLayout>
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/app_line" />
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/app_line" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="12dp">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Offline queue"
-                        android:textColor="@color/app_muted"
-                        android:textSize="10sp" />
-
-                    <TextView
-                        android:id="@+id/bufferText"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:text="0 records"
-                        android:textColor="@color/app_text"
-                        android:textSize="14sp"
-                        android:textStyle="bold" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:padding="12dp">
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Offline queue" android:textColor="@color/app_muted" android:textSize="10sp" />
+                    <TextView android:id="@+id/bufferText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="0 records" android:textColor="@color/app_text" android:textSize="14sp" android:textStyle="bold" />
                 </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Server"
-                        android:textColor="@color/app_muted"
-                        android:textSize="10sp" />
-
-                    <TextView
-                        android:id="@+id/serverStateText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        android:text="Not configured"
-                        android:textColor="@color/app_text"
-                        android:textSize="13sp"
-                        android:textStyle="bold" />
+                <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Server" android:textColor="@color/app_muted" android:textSize="10sp" />
+                    <TextView android:id="@+id/serverStateText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:ellipsize="end" android:maxLines="1" android:text="Built-in endpoint" android:textColor="@color/app_text" android:textSize="13sp" android:textStyle="bold" />
                 </LinearLayout>
             </LinearLayout>
-        </LinearLayout>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="22dp"
-            android:text="Connection"
-            android:textColor="@color/app_muted"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/app_line" />
 
-        <TextView
-            android:id="@+id/connectionHint"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="3dp"
-            android:text="Provision this device with its server endpoint and unit credentials."
-            android:textColor="@color/app_muted"
-            android:textSize="11sp" />
-
-        <Button
-            android:id="@+id/configToggleButton"
-            android:layout_width="match_parent"
-            android:layout_height="42dp"
-            android:layout_marginTop="10dp"
-            android:background="@drawable/bg_button_quiet"
-            android:text="Hide configuration"
-            android:textAllCaps="false"
-            android:textColor="@color/app_text"
-            android:textSize="12sp" />
-
-        <EditText
-            android:id="@+id/serverUrl"
-            android:layout_width="match_parent"
-            android:layout_height="46dp"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_input"
-            android:hint="https://tracking.example.org"
-            android:inputType="textUri"
-            android:singleLine="true"
-            android:textColor="@color/app_text"
-            android:textColorHint="#65717E"
-            android:textSize="13sp" />
-
-        <EditText
-            android:id="@+id/vehicleCode"
-            android:layout_width="match_parent"
-            android:layout_height="46dp"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_input"
-            android:hint="Vehicle code"
-            android:inputType="textCapCharacters"
-            android:singleLine="true"
-            android:textColor="@color/app_text"
-            android:textColorHint="#65717E"
-            android:textSize="13sp" />
-
-        <EditText
-            android:id="@+id/deviceKey"
-            android:layout_width="match_parent"
-            android:layout_height="46dp"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_input"
-            android:hint="Device key"
-            android:inputType="textPassword"
-            android:singleLine="true"
-            android:textColor="@color/app_text"
-            android:textColorHint="#65717E"
-            android:textSize="13sp" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/startButton"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_marginEnd="4dp"
-                android:layout_weight="1"
-                android:background="@drawable/bg_button_primary"
-                android:text="Start tracking"
-                android:textAllCaps="false"
-                android:textColor="#061110"
-                android:textSize="13sp"
-                android:textStyle="bold" />
-
-            <Button
-                android:id="@+id/stopButton"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_marginStart="4dp"
-                android:layout_weight="1"
-                android:background="@drawable/bg_button_stop"
-                android:text="Stop"
-                android:textAllCaps="false"
-                android:textColor="#ECA4A8"
-                android:textSize="13sp"
-                android:textStyle="bold" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="12dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Safety" android:textColor="@color/app_muted" android:textSize="10sp" />
+                <TextView android:id="@+id/safetyText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Crash detection arms while tracking" android:textColor="@color/app_text" android:textSize="13sp" android:textStyle="bold" />
+            </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 </ScrollView>
