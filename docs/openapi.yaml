@@ -1,217 +1,538 @@
 openapi: 3.1.0
 info:
   title: Ambulance Tracking API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     REST contract for the ambulance tracking service.
 
-    Realtime WebSocket endpoints are documented in `docs/API.md` because this
-    OpenAPI document covers HTTP endpoints only.
+    Realtime tracker/dispatcher WebSocket message contracts are documented in
+    `docs/API.md`. Crash detection is advisory and `CRASH_SUSPECTED` events
+    require dispatcher verification.
 servers:
   - url: https://tracking.example.kn
     description: Example production origin
   - url: http://localhost:8080
-    description: Local Docker development origin
+    description: Local development origin
 tags:
   - name: Health
-  - name: Dispatcher authentication
-  - name: Dispatcher fleet
-  - name: Tracker authentication
-  - name: Tracker replay
+  - name: Authentication
+  - name: Fleet
+  - name: Events
+  - name: Device provisioning
+  - name: Tracker
+  - name: Administration
+  - name: AI context
 paths:
   /healthz:
     get:
       tags: [Health]
       summary: Check API/database health
-      operationId: getHealth
       responses:
         '200':
-          description: Database is reachable
+          description: Healthy
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/HealthResponse'
-              examples:
-                ok:
-                  value: { status: ok }
+              schema: { $ref: '#/components/schemas/HealthResponse' }
         '503':
-          description: Database health check failed
+          description: Database unavailable
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/HealthResponse'
-              examples:
-                unhealthy:
-                  value: { status: unhealthy }
+              schema: { $ref: '#/components/schemas/HealthResponse' }
 
   /api/v1/auth/login:
     post:
-      tags: [Dispatcher authentication]
-      summary: Create dispatcher session
-      operationId: loginDispatcher
+      tags: [Authentication]
+      summary: Verify dispatcher/admin password
+      description: |
+        For an account without TOTP enabled, a successful request creates the
+        browser session immediately. For an MFA-enabled account, the response
+        contains a short-lived challenge and no authenticated session is issued
+        until `/api/v1/auth/mfa/verify` succeeds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Session created or MFA challenge required
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/LoginSuccess'
+                  - $ref: '#/components/schemas/MFAChallengeResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/auth/mfa/verify:
+    post:
+      tags: [Authentication]
+      summary: Complete an MFA-enabled login
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LoginRequest'
+              type: object
+              required: [challenge_token, code]
+              properties:
+                challenge_token: { type: string }
+                code: { type: string, pattern: '^[0-9]{6}$' }
       responses:
         '200':
-          description: Authenticated; also sets the HttpOnly `ambulance_session` cookie
-          headers:
-            Set-Cookie:
-              schema:
-                type: string
-              description: Dispatcher session cookie
+          description: MFA accepted and browser session created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginSuccess' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/auth/session:
+    get:
+      tags: [Authentication]
+      summary: Read current authenticated user and MFA state
+      security: [{ dispatcherCookie: [] }]
+      responses:
+        '200':
+          description: Current session
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LoginResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
+                type: object
+                required: [user, mfa_enabled]
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+                  mfa_enabled: { type: boolean }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /api/v1/auth/logout:
     post:
-      tags: [Dispatcher authentication]
-      summary: Revoke current dispatcher session
-      operationId: logoutDispatcher
-      security:
-        - dispatcherCookie: []
+      tags: [Authentication]
+      summary: Revoke current browser session
+      security: [{ dispatcherCookie: [] }]
       parameters:
-        - name: X-CSRF-Token
-          in: header
-          required: true
-          schema:
-            type: string
-          description: CSRF token returned by login
+        - $ref: '#/components/parameters/CSRFToken'
       responses:
-        '204':
-          description: Session revoked; response body is empty
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          description: CSRF validation failed
+        '204': { description: Session revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/auth/mfa/setup:
+    post:
+      tags: [Authentication]
+      summary: Start TOTP enrollment for the current user
+      security: [{ dispatcherCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      responses:
+        '200':
+          description: TOTP seed and authenticator URI; treat response as sensitive
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
+                type: object
+                required: [secret, otpauth_uri, issuer]
+                properties:
+                  secret: { type: string }
+                  otpauth_uri: { type: string }
+                  issuer: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/auth/mfa/confirm:
+    post:
+      tags: [Authentication]
+      summary: Verify TOTP and enable MFA for current user
+      security: [{ dispatcherCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: MFA enabled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled]
+                properties:
+                  enabled: { type: boolean, const: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /api/v1/vehicles:
     get:
-      tags: [Dispatcher fleet]
-      summary: Read current fleet snapshot
-      operationId: listVehicles
-      security:
-        - dispatcherCookie: []
+      tags: [Fleet]
+      summary: List provisioned vehicles and latest persisted location
+      security: [{ dispatcherCookie: [] }]
       responses:
         '200':
           description: Fleet snapshot
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/FleetResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
+              schema: { $ref: '#/components/schemas/FleetResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
   /api/v1/vehicles/{vehicleID}/history:
     get:
-      tags: [Dispatcher fleet]
-      summary: Read bounded playback history for the newest tracking session
-      operationId: getVehicleHistory
-      security:
-        - dispatcherCookie: []
+      tags: [Fleet]
+      summary: Read bounded history for the newest tracking session
+      security: [{ dispatcherCookie: [] }]
       parameters:
-        - name: vehicleID
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
+        - $ref: '#/components/parameters/VehicleID'
         - name: hours
           in: query
-          required: false
-          schema:
-            type: integer
-            minimum: 1
-            maximum: 24
-            default: 1
+          schema: { type: integer, minimum: 1, maximum: 24, default: 1 }
       responses:
         '200':
-          description: Chronological, bounded route history for the newest session in the window
+          description: Chronological session-isolated history
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HistoryResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/vehicles/{vehicleID}/eta:
+    get:
+      tags: [Fleet]
+      summary: Estimate arrival time from latest vehicle location to a destination
+      description: |
+        Uses a configured OSRM-compatible road router when available. Otherwise
+        returns a clearly marked approximate kinematic fallback.
+      security: [{ dispatcherCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/VehicleID'
+        - name: lat
+          in: query
+          required: true
+          schema: { type: number, minimum: -90, maximum: 90 }
+        - name: lon
+          in: query
+          required: true
+          schema: { type: number, minimum: -180, maximum: 180 }
+      responses:
+        '200':
+          description: ETA result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ETAResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { description: Vehicle has no location }
+
+  /api/v1/events:
+    get:
+      tags: [Events]
+      summary: List recent operational vehicle events
+      security: [{ dispatcherCookie: [] }]
+      parameters:
+        - name: hours
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 168, default: 24 }
+      responses:
+        '200':
+          description: Recent events
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/HistoryResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
+                type: object
+                required: [events, server_time]
+                properties:
+                  events:
+                    type: array
+                    items: { $ref: '#/components/schemas/VehicleEvent' }
+                  server_time: { type: string, format: date-time }
 
-  /api/v1/device/session:
+  /api/v1/events/{eventID}/ack:
     post:
-      tags: [Tracker authentication]
-      summary: Exchange provisioned device credential for short-lived bearer token
-      operationId: createDeviceSession
+      tags: [Events]
+      summary: Acknowledge an operational event
+      security: [{ dispatcherCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+        - name: eventID
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Event acknowledged }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { description: Event not found }
+
+  /api/v1/device/enroll:
+    post:
+      tags: [Device provisioning]
+      summary: Exchange a one-time enrollment code for device credentials
+      description: |
+        The enrollment code is short-lived and single-use. The generated device
+        key is returned only in this response and only its hash is retained by
+        the server.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DeviceSessionRequest'
+              type: object
+              required: [enrollment_code]
+              properties:
+                enrollment_code: { type: string, example: ABCD-EFGH }
+      responses:
+        '201':
+          description: Device provisioned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EnrollmentConsumeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { description: Invalid, expired, consumed or unusable enrollment }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /api/v1/device/session:
+    post:
+      tags: [Tracker]
+      summary: Exchange long-lived device credential for a short-lived bearer session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceSessionRequest' }
       responses:
         '200':
           description: Device session created
           content:
             application/json:
-              schema:
-                $ref: '#/components/schemas/DeviceSessionResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
-          $ref: '#/components/responses/InternalError'
+              schema: { $ref: '#/components/schemas/DeviceSessionResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
 
   /api/v1/tracker/history:
     post:
-      tags: [Tracker replay]
-      summary: Replay buffered tracker locations
+      tags: [Tracker]
+      summary: Replay buffered locations
       description: |
-        Accepts 1 to 500 location records in a request body limited by the server
-        to 512 KiB. New records are persisted idempotently and broadcast to
-        dispatcher WebSocket clients with `replayed: true`.
-      operationId: replayTrackerHistory
-      security:
-        - deviceBearer: []
+        Accepts normal JSON or a gzip-compressed JSON body (`Content-Encoding:
+        gzip`). Server limits apply to both compressed and decompressed streams.
+        Clients should send no more than 500 locations; the Android app batches
+        up to 400.
+      security: [{ deviceBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReplayRequest' }
+      responses:
+        '200':
+          description: Batch processed idempotently
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReplayResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/tracker/events:
+    post:
+      tags: [Tracker, Events]
+      summary: Submit advisory tracker event
+      description: Currently accepts `CRASH_SUSPECTED`; it is not a confirmed crash.
+      security: [{ deviceBearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VehicleEventInput' }
+      responses:
+        '202':
+          description: Event accepted or already present
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accepted, duplicate, event_id]
+                properties:
+                  accepted: { type: boolean }
+                  duplicate: { type: boolean }
+                  event_id: { type: string, format: uuid }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/admin/enrollments:
+    get:
+      tags: [Administration]
+      summary: List recent enrollment records
+      security: [{ dispatcherCookie: [] }]
+      responses:
+        '200':
+          description: Recent enrollments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enrollments:
+                    type: array
+                    items: { $ref: '#/components/schemas/Enrollment' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Administration]
+      summary: Create a one-time tracker enrollment
+      security: [{ dispatcherCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateEnrollmentRequest' }
+      responses:
+        '201':
+          description: Enrollment created; code is shown in this response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enrollment: { $ref: '#/components/schemas/Enrollment' }
+                  enrollment_code: { type: string }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/devices:
+    get:
+      tags: [Administration]
+      summary: List tracker devices
+      security: [{ dispatcherCookie: [] }]
+      responses:
+        '200':
+          description: Devices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  devices:
+                    type: array
+                    items: { $ref: '#/components/schemas/AdminDevice' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/admin/devices/{deviceID}/revoke:
+    post:
+      tags: [Administration]
+      summary: Revoke an active tracker device and its sessions
+      security: [{ dispatcherCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+        - name: deviceID
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Device revoked }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { description: Active device not found }
+
+  /api/v1/admin/api-tokens:
+    get:
+      tags: [Administration]
+      summary: List active machine/AI API-token metadata
+      security: [{ dispatcherCookie: [] }]
+      responses:
+        '200':
+          description: Tokens (never includes raw token values)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tokens:
+                    type: array
+                    items: { $ref: '#/components/schemas/APIToken' }
+    post:
+      tags: [Administration]
+      summary: Create a scoped machine/AI token
+      security: [{ dispatcherCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ReplayRequest'
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 80 }
+                scopes:
+                  type: array
+                  items: { type: string, enum: [fleet:read, events:read] }
+                expires_days: { type: integer, minimum: 1, maximum: 365 }
       responses:
-        '200':
-          description: Batch processed
+        '201':
+          description: Token created; `access_token` is shown only here
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ReplayResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
+                type: object
+                properties:
+                  token: { $ref: '#/components/schemas/APIToken' }
+                  access_token: { type: string }
+
+  /api/v1/admin/api-tokens/{tokenID}/revoke:
+    post:
+      tags: [Administration]
+      summary: Revoke a machine/AI token
+      security: [{ dispatcherCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CSRFToken'
+        - name: tokenID
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Token revoked }
+        '404': { description: Token not found }
+
+  /api/v1/ai/fleet-context:
+    get:
+      tags: [AI context]
+      summary: Read bounded normalized fleet context for AI/automation
+      security: [{ machineBearer: [fleet:read] }]
+      responses:
+        '200':
+          description: Read-only operational context; no patient fields in the current model
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AIFleetContext' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/ai/vehicles/{vehicleID}/context:
+    get:
+      tags: [AI context]
+      summary: Read bounded per-vehicle telemetry context and deterministic summary
+      security: [{ machineBearer: [fleet:read] }]
+      parameters:
+        - $ref: '#/components/parameters/VehicleID'
+        - name: minutes
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 360, default: 60 }
+      responses:
+        '200':
+          description: Vehicle context
+          content:
+            application/json:
+              schema: { type: object }
+        '400': { $ref: '#/components/responses/BadRequest' }
 
 components:
   securitySchemes:
@@ -222,259 +543,306 @@ components:
     deviceBearer:
       type: http
       scheme: bearer
-      bearerFormat: opaque
+      bearerFormat: opaque-device-session
+    machineBearer:
+      type: oauth2
+      description: Opaque hashed bearer token with application-enforced scopes; OAuth2 flow is not used for issuance.
+      flows: {}
+
+  parameters:
+    CSRFToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema: { type: string }
+    VehicleID:
+      name: vehicleID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
 
   responses:
     BadRequest:
       description: Invalid request
       content:
         application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
     Unauthorized:
-      description: Missing, invalid, or expired authentication
+      description: Missing, invalid or expired authentication
       content:
         application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Authenticated identity lacks required CSRF, role or token scope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
     RateLimited:
-      description: Authentication rate limit exceeded
+      description: Source-IP attempt limit exceeded
       headers:
         Retry-After:
-          schema:
-            type: string
+          schema: { type: string }
       content:
         application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
-    InternalError:
-      description: Internal operation failed
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    ServiceUnavailable:
+      description: Required security/service dependency unavailable
       content:
         application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
 
   schemas:
     ErrorResponse:
       type: object
       required: [error]
-      additionalProperties: false
       properties:
-        error:
-          type: string
+        error: { type: string }
 
     HealthResponse:
       type: object
       required: [status]
-      additionalProperties: false
       properties:
-        status:
-          type: string
-          enum: [ok, unhealthy]
+        status: { type: string, enum: [ok, unhealthy] }
 
     LoginRequest:
       type: object
       required: [username, password]
-      additionalProperties: false
       properties:
-        username:
-          type: string
-        password:
-          type: string
-          format: password
+        username: { type: string }
+        password: { type: string, format: password }
 
     User:
       type: object
       required: [id, username, role]
-      additionalProperties: false
       properties:
-        id:
-          type: string
-          format: uuid
-        username:
-          type: string
-        role:
-          type: string
-          enum: [dispatcher, admin]
+        id: { type: string, format: uuid }
+        username: { type: string }
+        role: { type: string, enum: [dispatcher, admin] }
 
-    LoginResponse:
+    LoginSuccess:
       type: object
-      required: [user, csrf_token, expires_at]
-      additionalProperties: false
+      required: [user, csrf_token, expires_at, mfa_required]
       properties:
-        user:
-          $ref: '#/components/schemas/User'
-        csrf_token:
-          type: string
-        expires_at:
-          type: string
-          format: date-time
+        user: { $ref: '#/components/schemas/User' }
+        csrf_token: { type: string }
+        expires_at: { type: string, format: date-time }
+        mfa_required: { type: boolean, const: false }
 
-    DeviceSessionRequest:
+    MFAChallengeResponse:
       type: object
-      required: [vehicle_code, device_key]
-      additionalProperties: false
+      required: [mfa_required, challenge_token, expires_at]
       properties:
-        vehicle_code:
-          type: string
-        device_key:
-          type: string
-          format: password
+        mfa_required: { type: boolean, const: true }
+        challenge_token: { type: string }
+        expires_at: { type: string, format: date-time }
 
     Device:
       type: object
       required: [id, vehicle_id, vehicle_code, name]
-      additionalProperties: false
       properties:
-        id:
-          type: string
-          format: uuid
-        vehicle_id:
-          type: string
-          format: uuid
-        vehicle_code:
-          type: string
-        name:
-          type: string
+        id: { type: string, format: uuid }
+        vehicle_id: { type: string, format: uuid }
+        vehicle_code: { type: string }
+        name: { type: string }
+
+    DeviceSessionRequest:
+      type: object
+      required: [vehicle_code, device_key]
+      properties:
+        vehicle_code: { type: string }
+        device_key: { type: string, format: password }
 
     DeviceSessionResponse:
       type: object
       required: [access_token, expires_at, device]
-      additionalProperties: false
       properties:
-        access_token:
-          type: string
-        expires_at:
-          type: string
-          format: date-time
-        device:
-          $ref: '#/components/schemas/Device'
+        access_token: { type: string }
+        expires_at: { type: string, format: date-time }
+        device: { $ref: '#/components/schemas/Device' }
+
+    EnrollmentConsumeResponse:
+      type: object
+      required: [device, device_key, server_time]
+      properties:
+        device: { $ref: '#/components/schemas/Device' }
+        device_key: { type: string, description: Shown once; persist securely on device }
+        server_time: { type: string, format: date-time }
 
     Location:
       type: object
-      required:
-        - tracking_session_id
-        - sequence_number
-        - recorded_at
-        - latitude
-        - longitude
+      required: [tracking_session_id, sequence_number, recorded_at, latitude, longitude]
       properties:
-        device_id:
-          type: string
-          format: uuid
-        vehicle_id:
-          type: string
-          format: uuid
-        vehicle_code:
-          type: string
-        tracking_session_id:
-          type: string
-          format: uuid
-        sequence_number:
-          type: integer
-          format: int64
-          minimum: 0
-        recorded_at:
-          type: string
-          format: date-time
-        latitude:
-          type: number
-          format: double
-          minimum: -90
-          maximum: 90
-        longitude:
-          type: number
-          format: double
-          minimum: -180
-          maximum: 180
-        accuracy_m:
-          type: number
-          minimum: 0
-        speed_mps:
-          type: number
-          minimum: 0
-        bearing_deg:
-          type: number
-          minimum: 0
-          exclusiveMaximum: 360
-        altitude_m:
-          type: number
-        battery_pct:
-          type: integer
-          minimum: 0
-          maximum: 100
-        network_type:
-          type: string
+        device_id: { type: string, format: uuid }
+        vehicle_id: { type: string, format: uuid }
+        vehicle_code: { type: string }
+        tracking_session_id: { type: string, format: uuid }
+        sequence_number: { type: integer, format: int64, minimum: 0 }
+        recorded_at: { type: string, format: date-time }
+        latitude: { type: number, minimum: -90, maximum: 90 }
+        longitude: { type: number, minimum: -180, maximum: 180 }
+        accuracy_m: { type: number, minimum: 0 }
+        speed_mps: { type: number, minimum: 0 }
+        bearing_deg: { type: number, minimum: 0, exclusiveMaximum: 360 }
+        altitude_m: { type: number }
+        battery_pct: { type: integer, minimum: 0, maximum: 100 }
+        network_type: { type: string }
 
     VehicleSnapshot:
       type: object
       required: [vehicle_id, vehicle_code, label, status]
       properties:
-        vehicle_id:
-          type: string
-          format: uuid
-        vehicle_code:
-          type: string
-        label:
-          type: string
-        status:
-          type: string
-        location:
-          $ref: '#/components/schemas/Location'
+        vehicle_id: { type: string, format: uuid }
+        vehicle_code: { type: string }
+        label: { type: string }
+        status: { type: string }
+        location: { $ref: '#/components/schemas/Location' }
 
     FleetResponse:
       type: object
       required: [vehicles, server_time]
-      additionalProperties: false
       properties:
         vehicles:
           type: array
-          items:
-            $ref: '#/components/schemas/VehicleSnapshot'
-        server_time:
-          type: string
-          format: date-time
+          items: { $ref: '#/components/schemas/VehicleSnapshot' }
+        server_time: { type: string, format: date-time }
 
     HistoryResponse:
       type: object
       required: [vehicle_id, from, to, locations]
-      additionalProperties: false
       properties:
-        vehicle_id:
-          type: string
-          format: uuid
-        from:
-          type: string
-          format: date-time
-        to:
-          type: string
-          format: date-time
+        vehicle_id: { type: string, format: uuid }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
         locations:
           type: array
           maxItems: 5000
-          items:
-            $ref: '#/components/schemas/Location'
+          items: { $ref: '#/components/schemas/Location' }
 
     ReplayRequest:
       type: object
       required: [locations]
-      additionalProperties: false
       properties:
         locations:
           type: array
           minItems: 1
           maxItems: 500
-          items:
-            $ref: '#/components/schemas/Location'
+          items: { $ref: '#/components/schemas/Location' }
 
     ReplayResponse:
       type: object
       required: [accepted, duplicates]
-      additionalProperties: false
       properties:
-        accepted:
-          type: integer
-          minimum: 0
-        duplicates:
-          type: integer
-          minimum: 0
+        accepted: { type: integer, minimum: 0 }
+        duplicates: { type: integer, minimum: 0 }
+
+    ETAResponse:
+      type: object
+      required: [vehicle_id, distance_m, duration_seconds, eta_at, method, approximate, origin, destination, generated_at]
+      properties:
+        vehicle_id: { type: string, format: uuid }
+        distance_m: { type: number, minimum: 0 }
+        duration_seconds: { type: number, minimum: 0 }
+        eta_at: { type: string, format: date-time }
+        method: { type: string, enum: [road_route, kinematic_fallback] }
+        approximate: { type: boolean }
+        assumed_speed_kph: { type: number }
+        origin: { $ref: '#/components/schemas/Coordinate' }
+        destination: { $ref: '#/components/schemas/Coordinate' }
+        location_recorded_at: { type: string, format: date-time }
+        generated_at: { type: string, format: date-time }
+
+    Coordinate:
+      type: object
+      required: [latitude, longitude]
+      properties:
+        latitude: { type: number }
+        longitude: { type: number }
+
+    VehicleEventInput:
+      type: object
+      required: [id, tracking_session_id, event_type, severity, recorded_at]
+      properties:
+        id: { type: string, format: uuid }
+        tracking_session_id: { type: string, format: uuid }
+        event_type: { type: string, enum: [CRASH_SUSPECTED] }
+        severity: { type: string, enum: [warning, critical] }
+        recorded_at: { type: string, format: date-time }
+        latitude: { type: number, minimum: -90, maximum: 90 }
+        longitude: { type: number, minimum: -180, maximum: 180 }
+        metadata: { type: object, additionalProperties: true }
+
+    VehicleEvent:
+      allOf:
+        - $ref: '#/components/schemas/VehicleEventInput'
+        - type: object
+          properties:
+            vehicle_id: { type: string, format: uuid }
+            vehicle_code: { type: string }
+            device_id: { type: string, format: uuid }
+            received_at: { type: string, format: date-time }
+            acknowledged_at: { type: string, format: date-time }
+            acknowledged_by: { type: string, format: uuid }
+
+    CreateEnrollmentRequest:
+      type: object
+      required: [vehicle_code]
+      properties:
+        vehicle_code: { type: string, pattern: '^[A-Z0-9][A-Z0-9-]{1,23}$' }
+        vehicle_label: { type: string, maxLength: 80 }
+        device_name: { type: string, maxLength: 80 }
+        expires_minutes: { type: integer, minimum: 5, maximum: 1440, default: 15 }
+
+    Enrollment:
+      type: object
+      required: [id, vehicle_code, vehicle_label, device_name, expires_at, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        vehicle_code: { type: string }
+        vehicle_label: { type: string }
+        device_name: { type: string }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        consumed_at: { type: string, format: date-time }
+        consumed_device_id: { type: string, format: uuid }
+
+    AdminDevice:
+      type: object
+      required: [id, vehicle_id, vehicle_code, vehicle_label, name, active, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        vehicle_id: { type: string, format: uuid }
+        vehicle_code: { type: string }
+        vehicle_label: { type: string }
+        name: { type: string }
+        active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
+
+    APIToken:
+      type: object
+      required: [id, name, scopes, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        scopes:
+          type: array
+          items: { type: string }
+        expires_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+
+    AIFleetContext:
+      type: object
+      required: [schema_version, generated_at, purpose, patient_data_included, fleet_counts, vehicles, unacknowledged_events]
+      properties:
+        schema_version: { type: string }
+        generated_at: { type: string, format: date-time }
+        purpose: { type: string }
+        patient_data_included: { type: boolean, const: false }
+        fleet_counts: { type: object, additionalProperties: { type: integer } }
+        vehicles:
+          type: array
+          items: { type: object }
+        unacknowledged_events:
+          type: array
+          items: { $ref: '#/components/schemas/VehicleEvent' }
