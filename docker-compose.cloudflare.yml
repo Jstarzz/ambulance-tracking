@@ -9,7 +9,13 @@ services:
       - --token
       - ${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN must be set in .env}
     depends_on:
-      - caddy
+      caddy:
+        condition: service_healthy
     networks: [edge]
     security_opt: ["no-new-privileges:true"]
     cap_drop: ["ALL"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
