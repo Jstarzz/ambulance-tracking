@@ -2,7 +2,6 @@ package app
 
 import (
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -48,10 +47,10 @@ func canonicalEnrollmentCode(v string) string {
 func (a *App) createEnrollment(w http.ResponseWriter, r *http.Request) {
 	u := userFromContext(r.Context())
 	var in struct {
-		VehicleCode   string `json:"vehicle_code"`
-		VehicleLabel  string `json:"vehicle_label"`
-		DeviceName    string `json:"device_name"`
-		ExpiresMinutes int   `json:"expires_minutes"`
+		VehicleCode    string `json:"vehicle_code"`
+		VehicleLabel   string `json:"vehicle_label"`
+		DeviceName     string `json:"device_name"`
+		ExpiresMinutes int    `json:"expires_minutes"`
 	}
 	if readJSON(r, &in) != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
@@ -136,18 +135,15 @@ func (a *App) deviceEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 	d, err := a.store.ConsumeEnrollment(r.Context(), code, deviceKey)
 	if err != nil {
-		outcome := "denied"
-		if !errors.Is(err, nil) {
-			a.log.Warn("device enrollment denied", "error", err)
-		}
-		a.store.Audit(r.Context(), "device", "", "device.enroll", "device", "", ip, outcome, nil)
+		a.log.Warn("device enrollment denied", "error", err)
+		a.store.Audit(r.Context(), "device", "", "device.enroll", "device", "", ip, "denied", nil)
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or expired enrollment code"})
 		return
 	}
 	a.store.Audit(r.Context(), "device", d.ID, "device.enroll", "vehicle", d.VehicleID, ip, "success", map[string]any{"vehicle_code": d.VehicleCode})
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"device":     d,
-		"device_key": deviceKey,
+		"device":      d,
+		"device_key":  deviceKey,
 		"server_time": time.Now().UTC(),
 	})
 }
