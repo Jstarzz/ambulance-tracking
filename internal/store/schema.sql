@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS users (
     last_login_at timestamptz
 );
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret_enc bytea;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled boolean NOT NULL DEFAULT false;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_confirmed_at timestamptz;
+
 CREATE TABLE IF NOT EXISTS user_sessions (
     id uuid PRIMARY KEY,
     user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -49,6 +53,47 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     revoked_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS user_sessions_lookup_idx ON user_sessions(token_hash) WHERE revoked_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS mfa_login_challenges (
+    id uuid PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash bytea NOT NULL UNIQUE,
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    consumed_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS mfa_login_challenges_lookup_idx
+    ON mfa_login_challenges(token_hash)
+    WHERE consumed_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS device_enrollments (
+    id uuid PRIMARY KEY,
+    code_hash bytea NOT NULL UNIQUE,
+    vehicle_code text NOT NULL,
+    vehicle_label text NOT NULL,
+    device_name text NOT NULL,
+    expires_at timestamptz NOT NULL,
+    created_by uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    consumed_at timestamptz,
+    consumed_device_id uuid REFERENCES devices(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS device_enrollments_active_idx
+    ON device_enrollments(expires_at DESC)
+    WHERE consumed_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id uuid PRIMARY KEY,
+    name text NOT NULL,
+    token_hash bytea NOT NULL UNIQUE,
+    scopes text[] NOT NULL DEFAULT ARRAY[]::text[],
+    created_by uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    expires_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    last_used_at timestamptz,
+    revoked_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS api_tokens_lookup_idx ON api_tokens(token_hash) WHERE revoked_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS location_events (
     id bigserial PRIMARY KEY,
@@ -70,7 +115,27 @@ CREATE TABLE IF NOT EXISTS location_events (
     UNIQUE(device_id, tracking_session_id, sequence_number)
 );
 CREATE INDEX IF NOT EXISTS location_events_vehicle_time_idx ON location_events(vehicle_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS location_events_device_session_idx ON location_events(device_id, tracking_session_id, sequence_number);
 CREATE INDEX IF NOT EXISTS location_events_geom_idx ON location_events USING gist(geom);
+
+CREATE TABLE IF NOT EXISTS vehicle_events (
+    id uuid PRIMARY KEY,
+    vehicle_id uuid NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+    device_id uuid NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    tracking_session_id uuid NOT NULL,
+    event_type text NOT NULL,
+    severity text NOT NULL CHECK (severity IN ('info','warning','critical')),
+    recorded_at timestamptz NOT NULL,
+    received_at timestamptz NOT NULL DEFAULT now(),
+    latitude double precision CHECK (latitude IS NULL OR latitude BETWEEN -90 AND 90),
+    longitude double precision CHECK (longitude IS NULL OR longitude BETWEEN -180 AND 180),
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    acknowledged_at timestamptz,
+    acknowledged_by uuid REFERENCES users(id) ON DELETE SET NULL,
+    UNIQUE(device_id, id)
+);
+CREATE INDEX IF NOT EXISTS vehicle_events_vehicle_time_idx ON vehicle_events(vehicle_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS vehicle_events_unacked_idx ON vehicle_events(recorded_at DESC) WHERE acknowledged_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS audit_log (
     id bigserial PRIMARY KEY,
