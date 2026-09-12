@@ -2,240 +2,407 @@
 
 ## 1. Scope
 
-This document describes the security controls implemented by the application and the boundaries that remain the responsibility of deployment/operations.
-
-It is not a compliance certification and does not replace an organizational risk assessment. For HIPAA-specific deployment considerations, see [HIPAA.md](HIPAA.md).
+This document describes application and deployment security controls implemented in the repository. It is not a compliance certification and does not replace an organizational risk assessment, penetration test, MDM policy, incident-response process, or HIPAA analysis. See [HIPAA.md](HIPAA.md) for the regulatory deployment boundary.
 
 ## 2. Security objectives
 
-The implementation is designed around the following goals:
+The system is designed so that:
 
-- only provisioned tracker devices can submit vehicle telemetry;
-- only authenticated dispatch users can read fleet/history data or receive dispatcher realtime events;
-- long-lived credentials are not stored in plaintext server-side;
+- only provisioned tracker identities can submit telemetry;
+- routine device provisioning does not require manually handling long device secrets;
+- only authenticated dispatcher/admin users can read fleet data;
+- administrative actions require an explicit `admin` role;
+- password compromise can be mitigated with TOTP MFA;
+- long-lived server-side credentials/tokens are hashed where verification does not require recovery;
+- TOTP seeds are encrypted because they must be recoverable for verification;
+- AI/machine integrations are read-only, scoped and revocable;
 - network exposure is minimized;
-- telemetry delivery is replay-safe and auditable;
-- failed authentication attempts are rate-limited;
-- revocation/rotation can invalidate application sessions;
+- telemetry/event retries are idempotent;
+- untrusted inputs and decompression are bounded;
+- crash-candidate alerts are not represented as confirmed emergencies;
 - tracker payloads exclude patient/clinical fields by design.
 
 ## 3. Trust boundaries
 
 ```mermaid
 flowchart LR
-    Phone[Managed/Provisioned Android tracker] -->|Untrusted Internet\nTLS| Edge[Cloudflare Tunnel]
-    Browser[Dispatcher browser] -->|Untrusted Internet\nTLS| Edge
-    Edge --> Caddy[Caddy private edge]
+    Phone[Managed Android tracker] -->|TLS / untrusted Internet| Edge[Cloudflare edge]
+    Browser[Dispatcher/admin browser] -->|TLS / untrusted Internet| Edge
+    AI[Optional AI service] -->|TLS + scoped bearer token| Edge
+    Edge --> Tunnel[cloudflared]
+    Tunnel --> Caddy[Caddy]
     Caddy --> API[Go API]
-    Caddy --> Web[Static web app]
+    Caddy --> Web[Static dispatcher]
     API --> DB[(Private PostgreSQL/PostGIS)]
+    API -. optional .-> Router[Routing service]
+
+    Secrets[Host/deployment secrets] -. configure .-> API
+    MDM[MDM / device policy] -. controls .-> Phone
 ```
 
-Trust boundaries:
+Important boundaries:
 
-1. **Device boundary** — a stolen/unmanaged phone can expose locally available operational telemetry or credentials depending on device compromise.
-2. **Internet/edge boundary** — all production client traffic must use HTTPS/WSS.
-3. **Application boundary** — Caddy forwards same-origin API/web traffic to the internal services.
-4. **Database boundary** — PostgreSQL is reachable only on the internal Docker network in the supplied production topology.
-5. **Operator boundary** — host access, `.env`, Cloudflare credentials, backup storage, signing keys, and MDM policies are outside the application process.
+1. **Android device** — a stolen/unmanaged phone may expose operational data and, if the OS/device is compromised, app credentials despite Keystore usage.
+2. **Public network** — production client traffic must use HTTPS/WSS.
+3. **Edge/origin** — Cloudflare/Caddy are in the request path; their configuration is part of the threat model.
+4. **Application** — the Go API is the only component allowed to translate authenticated requests into database access.
+5. **Database** — PostgreSQL is not exposed on a production host port.
+6. **Operations** — VM root access, `.env`, tunnel credentials, database passwords, signing keys, MFA encryption key, backups and MDM are outside the app's own protection boundary.
+7. **AI integration** — a model gets a narrow read API, not SQL credentials or admin credentials.
 
-## 4. Identity and credentials
+## 4. Dispatcher identity and TOTP MFA
 
-### Dispatcher users
+### Passwords
 
-- Usernames are unique.
-- Passwords are hashed with bcrypt.
-- Successful login creates a random opaque session token and a separate CSRF token.
-- Only the hashes of session and CSRF tokens are stored in PostgreSQL.
-- The browser session token is delivered in an `HttpOnly` cookie.
-- Production is expected to set `Secure` cookies.
-- `SameSite=Strict` is used.
-- Password rotation revokes existing dispatcher sessions.
+User passwords are hashed with bcrypt. Passwords are not stored reversibly.
 
-Current limitation: MFA/SSO is not implemented. Production deployments with higher assurance requirements should add an identity-provider-backed authentication path rather than relying indefinitely on password-only local accounts.
+A successful single-factor login issues:
 
-### Tracker devices
+- an opaque random user-session token;
+- a separate opaque CSRF token;
+- an `HttpOnly` session cookie.
 
-- A tracker is bound to a provisioned vehicle and long-lived device key.
-- The server stores the device-key hash, not the plaintext key.
-- Device authentication returns a short-lived bearer token.
-- Bearer tokens are stored only as hashes server-side.
-- Device-key rotation revokes active device sessions.
-- Android stores its provisioned configuration using Android Keystore-backed encryption.
+Only hashes of the session and CSRF values are stored in PostgreSQL. Production cookies are `Secure` and `SameSite=Strict`.
 
-Device keys are credentials, not identifiers. Do not place them in screenshots, tickets, logs, source files, sample configuration, or chat transcripts.
+### MFA setup
 
-## 5. Session lifecycle
+A signed-in user can start TOTP setup. The API generates a random TOTP seed and returns it once in an `otpauth://` URI/manual secret so it can be added to an authenticator app.
+
+The TOTP seed is then stored **encrypted**, not hashed, because verification requires the original secret. Encryption uses AES-256-GCM with a 32-byte deployment key supplied in `MFA_ENCRYPTION_KEY`.
+
+```mermaid
+flowchart LR
+    Seed[Random TOTP seed] --> GCM[AES-256-GCM]
+    Key[MFA_ENCRYPTION_KEY\nnot in database] --> GCM
+    GCM --> DB[(Encrypted seed in users)]
+```
+
+The encryption key must be backed up securely. Losing it makes existing MFA seeds unverifiable; exposing it plus the database weakens the second factor.
+
+### MFA login
+
+For an MFA-enabled user, password verification does **not** issue an authenticated browser session. Instead:
+
+1. the server creates a random five-minute MFA challenge;
+2. only the challenge hash is stored;
+3. the browser submits that challenge plus a six-digit TOTP;
+4. the server verifies the TOTP with a ±1 time-step tolerance;
+5. the challenge is consumed once;
+6. only then is the normal browser session created.
+
+If an MFA-enabled account exists but the deployment encryption key is unavailable, login fails closed rather than silently bypassing MFA.
+
+### Remaining authentication gap
+
+TOTP meaningfully improves local-account security but does not provide centralized identity lifecycle, conditional access, hardware-backed phishing-resistant factors, or organization-wide offboarding. A future production identity-provider/SSO path may still be preferable for larger deployments.
+
+## 5. Tracker identity and enrollment
+
+### Long-lived device credentials
+
+Each active tracker has a random device key. The server stores only `SHA-256(device_key)`. Device authentication exchanges that key for a short-lived bearer session; bearer tokens are also stored only as hashes.
+
+Android stores its server URL/vehicle code/device key in a Keystore-backed encrypted configuration.
+
+### One-time enrollment
+
+Routine provisioning uses a short-lived enrollment code instead of manually distributing the long device key.
+
+```mermaid
+sequenceDiagram
+    participant A as Admin
+    participant API
+    participant DB
+    participant P as Phone
+
+    A->>API: create enrollment
+    API->>DB: HASH(code) + expiry + intended vehicle
+    API-->>A: one-time code
+    P->>API: consume code
+    API->>DB: lock/check unconsumed enrollment
+    API->>DB: create device + HASH(random device key)
+    API->>DB: mark enrollment consumed
+    API-->>P: device key shown to app once
+```
+
+Security properties:
+
+- code is source-IP rate limited;
+- code is hashed at rest;
+- code expires;
+- code is single-use;
+- consumption is transactional;
+- an existing active tracker blocks silent duplicate enrollment for the same vehicle;
+- the generated device key is returned only on successful enrollment;
+- server URL/manual credentials are hidden under Android **Advanced settings**, reducing routine secret handling.
+
+The human-friendly code has less entropy than a device key, which is why its short validity, one-time semantics and rate limiting matter.
+
+## 6. Device revocation
+
+Admin device revocation:
+
+1. marks the device inactive;
+2. revokes currently active device sessions in the same operation path;
+3. causes periodic WebSocket session revalidation/reconnect authentication to fail.
+
+Device-key rotation tooling similarly revokes existing device sessions.
+
+## 7. Machine / AI tokens
+
+Machine integrations use opaque API tokens prefixed for recognizability. The raw value is shown only on creation; PostgreSQL stores only its hash.
+
+Tokens have:
+
+- human-readable name;
+- scope list;
+- optional expiry;
+- creation metadata;
+- last-used timestamp;
+- revocation state.
+
+Current exposed AI endpoints are read-only. A fleet/AI token cannot call browser-admin handlers because those require an authenticated user cookie, CSRF token and admin role.
+
+Never put raw machine tokens in prompts, browser local storage, source control, screenshots or model-training corpora.
+
+## 8. Authorization model
+
+Application users have roles:
+
+- `dispatcher` — operational fleet reads, history, ETA, events, dispatcher WebSocket;
+- `admin` — dispatcher access plus device enrollment/revocation and API-token administration.
+
+Administrative handlers explicitly check `role == admin` after validating the database-backed browser session.
+
+Browser writes also require the session-specific CSRF token.
+
+## 9. Session lifecycle
 
 ### Dispatcher
 
-- REST reads require a valid database-backed user session.
-- Logout requires CSRF validation and revokes the current session.
-- Dispatcher WebSocket sessions are revalidated periodically; revocation/expiry closes the connection.
+- session is database-backed;
+- logout revokes the current session;
+- password rotation revokes existing sessions;
+- dispatcher WebSockets periodically revalidate the database session;
+- expired/revoked sessions close the WebSocket.
 
 ### Tracker
 
-- Tracker WebSocket is accepted only after validating the bearer token.
-- The bearer session is revalidated periodically during the WebSocket lifetime.
-- Revoked/expired sessions are closed.
+- tracker WebSocket requires a valid bearer token before upgrade;
+- device session is revalidated periodically;
+- device revocation/key rotation invalidates sessions;
+- bearer lifetime is intentionally shorter than the device key lifetime.
 
-## 6. Authentication rate limiting
+### MFA challenges
 
-The API applies fixed-window, source-IP rate limits to login/device-session creation.
+- five-minute lifetime;
+- random opaque token;
+- hash stored in database;
+- consumed after successful verification;
+- separate source-IP attempt limiter.
 
-Current limits:
+## 10. Authentication and enrollment rate limits
 
-- dispatcher login: 10 attempts per one-minute source-IP window;
-- device authentication: 20 attempts per one-minute source-IP window.
+Current fixed-window process-local limits include:
 
-The limiter is process-local. It is suitable for the current single-process deployment. If the API is horizontally scaled, the limit must move to shared state and/or the edge so multiple replicas cannot each maintain an independent allowance.
+- dispatcher password login: 10 attempts/source IP/minute;
+- device session creation: 20 attempts/source IP/minute;
+- device enrollment: 12 attempts/source IP/minute;
+- MFA verification: 12 attempts/source IP/minute.
 
-## 7. Network exposure
+These are appropriate to the current single-process deployment. If API replicas are added, the rate-limit state must move to a shared store/edge policy so each replica cannot independently grant a full allowance.
 
-The production Compose stack intentionally does not publish:
+## 11. Network exposure
+
+The supplied production Compose stack intentionally does not publish host ports for:
 
 - PostgreSQL `5432`;
 - API `8080`;
 - Caddy `80/443`;
 - web `80`.
 
-Cloudflare Tunnel creates the public path outbound from the host and routes to `http://caddy:80` inside the `edge` network.
+Cloudflare Tunnel establishes the public path outbound from the VM and reaches Caddy on the private Docker edge network.
 
-The database is attached only to the isolated `internal` network. The API is the only application service connected to both database and edge networks.
+PostgreSQL exists only on the internal Docker network. The API is the only application service attached to both internal and edge networks.
 
-This design reduces accidental host exposure, but host firewalling and administrative-service exposure (SSH, Proxmox, etc.) remain deployment responsibilities.
+Host firewalling, Proxmox/SSH exposure, hypervisor administration and upstream network controls remain deployment responsibilities.
 
-## 8. Transport security
+## 12. Transport security
 
-The Android UI refuses to start tracking unless the configured server URL begins with `https://`.
+The normal Android path uses a build-time HTTPS default server and refuses to start tracking with a non-HTTPS configured server URL.
 
-Production should terminate client TLS at the trusted public edge and maintain the private tunnel path to the origin. The supplied Caddy origin is intentionally HTTP-only inside the Docker/tunnel boundary.
+Production client TLS terminates at the trusted public edge and traverses the authenticated private tunnel to the origin. The supplied Caddy service is HTTP-only inside that Docker/tunnel boundary.
 
-Do not weaken Android cleartext restrictions to work around deployment problems in production.
+Do not enable production Android cleartext traffic to work around certificate or tunnel configuration problems.
 
-## 9. Request and message bounds
+## 13. Input and decompression bounds
 
-The API limits untrusted input to reduce resource-abuse risk:
+Untrusted input is bounded before expensive processing:
 
-- generic JSON reader is limited to 32 KiB;
-- tracker WebSocket read limit is 8 KiB per message;
-- replay request body is limited to 512 KiB;
-- replay batch count is limited to 500 locations;
-- history playback is limited to 1–24 hours;
-- history output is down-sampled to at most 5,000 points.
+- generic JSON: 32 KiB reader;
+- tracker WebSocket location message: 8 KiB read limit;
+- offline replay compressed upload: bounded HTTP body;
+- offline replay decompressed JSON: separate ~2 MiB bound;
+- replay: max 500 server-accepted locations/request; Android sends up to 400;
+- history: 1–24 hour request range and <=5,000 output points;
+- AI per-vehicle context: bounded 1–360 minute window and <=600 sampled points;
+- vehicle-event metadata: limited field count;
+- event/location timestamps and coordinates validated.
 
-Location validation also bounds coordinates and accepted timestamps.
+The separate decompressed limit matters because a tiny gzip file can otherwise expand into a large in-memory payload.
 
-## 10. Browser security controls
+## 14. Browser security headers
 
-The Go service/Caddy path applies restrictive headers including:
+The API path adds:
 
+- `Content-Security-Policy` with explicit map resource allowances;
 - `X-Content-Type-Options: nosniff`;
+- `X-Frame-Options: DENY`;
 - `Referrer-Policy: no-referrer`;
-- restrictive `Permissions-Policy`;
-- Content Security Policy restricting default, connection, image, worker, script, font, form, frame and object sources;
-- HSTS at the edge/origin configuration where appropriate;
-- frame-denial protections.
+- `Permissions-Policy`;
+- `Cross-Origin-Opener-Policy: same-origin`;
+- `Cross-Origin-Resource-Policy: same-origin`;
+- `Cache-Control: no-store` for `/api/*` responses.
 
-The current CSP allows the OpenFreeMap map origin required by the UI.
+Caddy adds the deployment-level security headers documented in the operations/Cloudflare configuration.
 
-## 11. Data integrity and replay safety
+## 15. Telemetry integrity and replay safety
 
-Telemetry is modeled as immutable events keyed by:
+Location identity is:
 
 ```text
 (device_id, tracking_session_id, sequence_number)
 ```
 
-The database enforces uniqueness for this identity. Duplicate submissions do not produce duplicate rows.
+PostgreSQL enforces uniqueness. Retransmission therefore cannot create a second location event for the same immutable identity.
 
-This is a security/reliability property as well as an offline-delivery property: retries cannot silently multiply the same event.
+A tracker deletes a queued location only after the server ACKs it. An ACK can indicate `duplicate=true`, which means the server already has that identity and the client may safely remove its queued copy.
 
-The server persists a new location before broadcasting it to dispatcher clients.
+Crash/operational events similarly use a UUID and `ON CONFLICT DO NOTHING` persistence.
 
-## 12. Audit logging
+## 16. Crash-alert safety model
 
-The application records structured database audit events for security/operational actions including:
+`CRASH_SUSPECTED` is an advisory signal derived from phone sensors and recent movement. It is **not** a confirmed collision and should never automatically initiate a high-consequence action without policy/human verification.
 
-- dispatcher login/logout;
+The payload records that human verification is required. The UI uses “Possible crash” language and provides acknowledge/locate controls.
+
+The detector is designed to reduce obvious false positives using a speed gate, acceleration threshold and cooldown, but phone mounting/drops/potholes/sensor differences require real-world calibration.
+
+## 17. Audit logging
+
+Database audit events cover major actions including:
+
+- successful/failed/rate-limited authentication;
+- MFA requirement, verification and enablement;
+- user logout;
 - device session creation;
-- tracker connection;
-- dispatcher WebSocket connection;
-- fleet reads;
-- route-history reads;
-- tracker replay batches;
-- authentication failures/rate limits where implemented.
+- device enrollment;
+- tracker/dispatcher WebSocket connection;
+- fleet/history reads;
+- offline replay;
+- tracker operational events;
+- event acknowledgement;
+- API-token creation/revocation;
+- device revocation.
 
-Audit records contain source IP where available, actor/resource identifiers, outcome and metadata.
+Records include actor/resource identifiers, outcome, source IP where available and bounded metadata.
 
-Current limitation: the repository does not ship audit records to external immutable storage. A privileged database/host operator can still alter application data. Production should export logs/audits to separately controlled retention infrastructure.
+Current limitation: audit rows live in the same database trust domain. A privileged database/host operator can alter them. Production should export security/audit data to separately controlled retention if tamper resistance is required.
 
-## 13. Secrets and sensitive configuration
+## 18. Secrets
 
-Never commit:
+Never commit or casually copy:
 
 - `.env`;
 - Cloudflare tunnel token;
 - PostgreSQL production password;
-- real dispatcher passwords;
+- dispatcher passwords;
 - tracker device keys;
+- raw API/AI tokens;
+- `MFA_ENCRYPTION_KEY`;
+- TOTP seeds/QR enrollment material;
 - Android signing keystore/passwords;
-- private TLS/SSH keys.
+- private SSH/TLS keys.
 
-The repository ignores common signing-keystore extensions and `.env`, but `.gitignore` is only a guardrail. Operators remain responsible for secret handling.
+The repository's ignore rules are a guardrail, not secret management.
 
-## 14. Android signing
+### Secret-rotation impact
 
-Production Android APKs should use one stable signing identity.
+| Secret | Rotation effect |
+| --- | --- |
+| Dispatcher password | existing browser sessions revoked |
+| Device key | existing device sessions revoked; phone must receive replacement |
+| API/AI token | token revoked; integration receives a new token |
+| MFA encryption key | **requires planned re-enrollment/migration**; do not casually replace it because existing encrypted TOTP seeds depend on it |
+| Android signing key | changing it normally prevents in-place update of already-installed production APKs |
 
-The manual `android-release` workflow expects the keystore material/passwords as GitHub Actions secrets, reconstructs the keystore only on the runner, builds the release, uploads the APK artifact and deletes the temporary keystore.
+## 19. Android signing and supply chain
 
-The master signing key must also be stored securely outside GitHub. Compromise requires release-key incident response; loss prevents updates to existing installations under the same application ID.
+Production APKs should use one stable signing identity. CI reconstructs the keystore from protected GitHub Actions secrets only for the release job and deletes the runner copy afterward.
 
-## 15. Backup security
+The master signing key must also have an independent recoverable backup. Loss blocks compatible future updates; compromise requires a release-signing incident response.
 
-The supplied backup helper creates PostgreSQL custom-format dumps with restrictive local file permissions and SHA-256 checksums.
+Further supply-chain improvements to consider:
 
-Checksums provide corruption/tamper detection, not confidentiality. Production backup storage should add encryption at rest and access controls appropriate to the sensitivity of vehicle-location and audit data.
+- commit/use Gradle wrapper with checksum validation;
+- pin important GitHub Actions to commit SHAs after policy review;
+- dependency update/scanning automation;
+- signed release provenance/SBOM if required by the organization.
 
-Backups should be stored off the application VM and restore-tested.
+## 20. Backup security
 
-## 16. Data classification
+Database backup tooling creates custom-format dumps, restrictive local permissions and SHA-256 checksum sidecars. Checksums verify integrity, not confidentiality.
 
-Tracker payloads intentionally contain operational vehicle telemetry and no patient/clinical fields.
+Production backup design should add:
 
-Location data should still be treated as sensitive operational data. Depending on how a deployment links vehicle locations to dispatch/patient workflows, location records may become associated with identifiable care events. The absence of patient fields in this repository does not guarantee that all deployments remain outside PHI/ePHI scope.
+- encryption at rest;
+- off-VM storage;
+- access separation;
+- retention policy;
+- tested recovery objectives;
+- recurring restore drills.
 
-## 17. Known production gaps
+## 21. Data classification and AI
 
-The following are not solved by the current codebase:
+The tracker and AI context endpoints intentionally exclude patient/clinical fields. Vehicle-location data remains sensitive operational information.
 
-- MFA/SSO;
+If another system later associates vehicle/time/location with identifiable patient care, the privacy/regulatory classification may change. At that point the AI/provider/edge/storage flow must be reassessed rather than assuming the current no-patient-data statement still applies.
+
+AI clients receive a curated API response, not arbitrary table access. Retrieved strings should be treated as untrusted data, not model instructions. See [AI_INTEGRATION.md](AI_INTEGRATION.md).
+
+## 22. Known production gaps
+
+Current code does **not** solve all of these:
+
+- phishing-resistant enterprise SSO/hardware-backed MFA;
 - centralized immutable audit/log retention;
-- host-level hardening and patch management;
-- encrypted/off-host backup policy and key management;
-- MDM enforcement for tracker phones;
-- remote attestation/device-integrity checks;
-- automatic server-side telemetry retention/deletion;
-- high-availability database/failover;
+- MDM enforcement and remote wipe policy;
+- host/hypervisor hardening and vulnerability management;
+- automatic server-side telemetry retention/deletion policy;
+- database high availability/failover;
 - multi-node shared realtime pub/sub;
-- formal incident-response workflow;
-- formal vulnerability-management/penetration-test program;
-- organizational access reviews and workforce procedures.
+- formal penetration testing;
+- formal incident-response/on-call procedures;
+- organizational access reviews/workforce procedures;
+- calibrated/certified crash-detection hardware;
+- guaranteed production map/routing-provider SLA.
 
-These are release/deployment responsibilities, not reasons to describe the code as "HIPAA certified" or automatically compliant.
+These gaps are explicit deployment/roadmap items. They are not a reason to call the source code “HIPAA certified,” and adding TOTP does not turn the whole system into a completed compliance program.
 
-## 18. Security review checklist for changes
+## 23. Security review checklist for future changes
 
-For every security-relevant PR, review:
+For every security-relevant PR, ask:
 
-- Does it add a new public endpoint or port?
-- Does it add a new secret or sensitive field?
-- Does it change session/credential lifetime or revocation?
-- Does it bypass HTTPS/secure cookie requirements?
-- Does it weaken request size or input validation?
-- Does it change audit coverage?
-- Does it introduce patient/clinical data?
-- Does it affect offline idempotency or event identity?
-- Does it change backup/restore exposure?
-- Does documentation and the API contract remain accurate?
+- Does this create a new public endpoint, port, or third-party data path?
+- Is the endpoint authenticated and authorized at the correct role/scope?
+- Does any new browser write require CSRF protection?
+- Is a new secret hashed if verification-only, or encrypted if recovery is required?
+- Does rotation/revocation invalidate existing sessions/tokens?
+- Are request body, decompression, time-window and query-result sizes bounded?
+- Can retries create duplicate server state?
+- Is any safety inference clearly labeled with its confidence/authority boundary?
+- Does the change introduce patient/clinical data or join operational data to it?
+- Does an AI integration receive only the minimum fields/capabilities it needs?
+- Does the audit log capture the security-significant action?
+- Does documentation/OpenAPI stay synchronized with behavior?
+- What happens if the new dependency is unavailable?
