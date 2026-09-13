@@ -27,22 +27,22 @@ type Enrollment struct {
 }
 
 type AdminDevice struct {
-	ID          string     `json:"id"`
-	VehicleID   string     `json:"vehicle_id"`
-	VehicleCode string     `json:"vehicle_code"`
-	VehicleLabel string    `json:"vehicle_label"`
-	Name        string     `json:"name"`
-	Active      bool       `json:"active"`
-	CreatedAt   time.Time  `json:"created_at"`
-	LastSeenAt  *time.Time `json:"last_seen_at,omitempty"`
+	ID           string     `json:"id"`
+	VehicleID    string     `json:"vehicle_id"`
+	VehicleCode  string     `json:"vehicle_code"`
+	VehicleLabel string     `json:"vehicle_label"`
+	Name         string     `json:"name"`
+	Active       bool       `json:"active"`
+	CreatedAt    time.Time  `json:"created_at"`
+	LastSeenAt   *time.Time `json:"last_seen_at,omitempty"`
 }
 
 type APIToken struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Scopes    []string   `json:"scopes"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Scopes     []string   `json:"scopes"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
 	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
 }
 
