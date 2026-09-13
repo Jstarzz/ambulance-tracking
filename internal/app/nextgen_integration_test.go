@@ -90,9 +90,9 @@ func TestEnrollmentCompressedReplayEventsAndAIContext(t *testing.T) {
 
 	browser, csrfToken := loginNextgenAdmin(t, server.URL, adminUser, adminPass)
 	enrollPayload, _ := json.Marshal(map[string]any{
-		"vehicle_code": vehicle,
-		"vehicle_label": "Next-gen integration ambulance",
-		"device_name": "Integration phone",
+		"vehicle_code":    vehicle,
+		"vehicle_label":   "Next-gen integration ambulance",
+		"device_name":     "Integration phone",
 		"expires_minutes": 15,
 	})
 	enrollReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/admin/enrollments", bytes.NewReader(enrollPayload))
@@ -154,14 +154,14 @@ func TestEnrollmentCompressedReplayEventsAndAIContext(t *testing.T) {
 	}
 
 	eventPayload, _ := json.Marshal(map[string]any{
-		"id": "88888888-8888-4888-8888-888888888888",
+		"id":                  "88888888-8888-4888-8888-888888888888",
 		"tracking_session_id": sessionID,
-		"event_type": "CRASH_SUSPECTED",
-		"severity": "warning",
-		"recorded_at": now,
-		"latitude": 17.312,
-		"longitude": -62.738,
-		"metadata": map[string]any{"g_force": 3.4, "requires_human_verification": true},
+		"event_type":          "CRASH_SUSPECTED",
+		"severity":            "warning",
+		"recorded_at":         now,
+		"latitude":            17.312,
+		"longitude":           -62.738,
+		"metadata":            map[string]any{"g_force": 3.4, "requires_human_verification": true},
 	})
 	eventReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/tracker/events", bytes.NewReader(eventPayload))
 	eventReq.Header.Set("Authorization", "Bearer "+token)
@@ -197,7 +197,7 @@ func TestEnrollmentCompressedReplayEventsAndAIContext(t *testing.T) {
 	}
 	var aiContext struct {
 		PatientDataIncluded bool `json:"patient_data_included"`
-		Vehicles []struct {
+		Vehicles            []struct {
 			VehicleCode string `json:"vehicle_code"`
 		} `json:"vehicles"`
 		UnacknowledgedEvents []store.VehicleEvent `json:"unacknowledged_events"`
@@ -210,7 +210,9 @@ func TestEnrollmentCompressedReplayEventsAndAIContext(t *testing.T) {
 	}
 	found := false
 	for _, v := range aiContext.Vehicles {
-		if v.VehicleCode == vehicle { found = true }
+		if v.VehicleCode == vehicle {
+			found = true
+		}
 	}
 	if !found {
 		t.Fatalf("AI fleet context missing %s", vehicle)
@@ -235,8 +237,8 @@ func loginNextgenAdmin(t *testing.T, serverURL, username, password string) (*htt
 		t.Fatalf("admin login status %d: %s", resp.StatusCode, payload)
 	}
 	var result struct {
-		CSRFToken string `json:"csrf_token"`
-		MFARequired bool `json:"mfa_required"`
+		CSRFToken   string `json:"csrf_token"`
+		MFARequired bool   `json:"mfa_required"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("decode admin login: %v", err)
