@@ -11,7 +11,5 @@
     <color name="app_green">#45B968</color>
     <color name="app_amber">#DCA54A</color>
     <color name="app_red">#E35D63</color>
-    <!-- Temporary compatibility alias while old rendering code is migrated. -->
-    <color name="app_teal">#4C8DFF</color>
     <color name="icon_background">#0B0D10</color>
 </resources>
