@@ -96,7 +96,7 @@ func (a *App) routeETA(ctx context.Context, originLat, originLon, destLat, destL
 		return nil, fmt.Errorf("no route returned")
 	}
 	return map[string]any{
-		"distance_m":      body.Routes[0].Distance,
+		"distance_m":       body.Routes[0].Distance,
 		"duration_seconds": body.Routes[0].Duration,
 		"eta_at":           time.Now().UTC().Add(time.Duration(body.Routes[0].Duration * float64(time.Second))),
 		"method":           "road_route",
@@ -121,11 +121,11 @@ func (a *App) fallbackETA(originLat, originLon, destLat, destLon float64, speedM
 	}
 	durationSeconds := distanceM / (speedKPH / 3.6)
 	return map[string]any{
-		"distance_m":      distanceM,
-		"duration_seconds": durationSeconds,
-		"eta_at":           time.Now().UTC().Add(time.Duration(durationSeconds * float64(time.Second))),
-		"method":           "kinematic_fallback",
-		"approximate":      true,
+		"distance_m":        distanceM,
+		"duration_seconds":  durationSeconds,
+		"eta_at":            time.Now().UTC().Add(time.Duration(durationSeconds * float64(time.Second))),
+		"method":            "kinematic_fallback",
+		"approximate":       true,
 		"assumed_speed_kph": speedKPH,
 	}
 }
