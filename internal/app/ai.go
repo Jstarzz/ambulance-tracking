@@ -84,12 +84,12 @@ func (a *App) aiFleetContext(w http.ResponseWriter, r *http.Request) {
 			counts["no_data"]++
 		}
 		fleet = append(fleet, map[string]any{
-			"vehicle_id": vehicle.VehicleID,
+			"vehicle_id":   vehicle.VehicleID,
 			"vehicle_code": vehicle.VehicleCode,
-			"label": vehicle.Label,
-			"status": vehicle.Status,
-			"freshness": state,
-			"location": vehicle.Location,
+			"label":        vehicle.Label,
+			"status":       vehicle.Status,
+			"freshness":    state,
+			"location":     vehicle.Location,
 		})
 	}
 
@@ -100,12 +100,12 @@ func (a *App) aiFleetContext(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"schema_version": "1.0",
-		"generated_at": now,
-		"purpose": "read-only operational context for an AI assistant or external automation",
+		"schema_version":        "1.0",
+		"generated_at":          now,
+		"purpose":               "read-only operational context for an AI assistant or external automation",
 		"patient_data_included": false,
-		"fleet_counts": counts,
-		"vehicles": fleet,
+		"fleet_counts":          counts,
+		"vehicles":              fleet,
 		"unacknowledged_events": unacked,
 	})
 }
@@ -167,17 +167,17 @@ func (a *App) aiVehicleContext(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"schema_version": "1.0",
-		"vehicle_id": vehicleID,
+		"vehicle_id":     vehicleID,
 		"window_minutes": minutes,
-		"sample_count": len(locations),
+		"sample_count":   len(locations),
 		"summary": map[string]any{
-			"distance_m": distanceM,
-			"average_speed_kph": avgSpeedMPS * 3.6,
-			"max_speed_kph": maxSpeedMPS * 3.6,
+			"distance_m":                       distanceM,
+			"average_speed_kph":                avgSpeedMPS * 3.6,
+			"max_speed_kph":                    maxSpeedMPS * 3.6,
 			"samples_recorded_without_network": offlineSamples,
 		},
-		"locations": locations,
-		"events": vehicleEvents,
+		"locations":             locations,
+		"events":                vehicleEvents,
 		"patient_data_included": false,
 	})
 }
