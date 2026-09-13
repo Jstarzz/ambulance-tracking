@@ -12,11 +12,25 @@ data class PendingLocation(
     val payload: String,
 )
 
-class PendingLocationStore(context: Context) : SQLiteOpenHelper(context, "pending_locations.db", null, 1) {
+data class PendingTrackerEvent(
+    val id: String,
+    val payload: String,
+)
+
+class PendingLocationStore(context: Context) : SQLiteOpenHelper(context, "pending_locations.db", null, 2) {
     override fun onCreate(db: SQLiteDatabase) {
+        createLocationTable(db)
+        createEventTable(db)
+    }
+
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) createEventTable(db)
+    }
+
+    private fun createLocationTable(db: SQLiteDatabase) {
         db.execSQL(
             """
-            CREATE TABLE pending_locations (
+            CREATE TABLE IF NOT EXISTS pending_locations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id TEXT NOT NULL,
                 sequence_number INTEGER NOT NULL,
@@ -26,10 +40,21 @@ class PendingLocationStore(context: Context) : SQLiteOpenHelper(context, "pendin
             )
             """.trimIndent(),
         )
-        db.execSQL("CREATE INDEX pending_locations_created_idx ON pending_locations(created_at)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS pending_locations_created_idx ON pending_locations(created_at)")
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    private fun createEventTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS pending_events (
+                id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            )
+            """.trimIndent(),
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS pending_events_created_idx ON pending_events(created_at)")
+    }
 
     fun enqueue(sessionId: String, sequenceNumber: Long, payload: String) {
         val values = ContentValues().apply {
@@ -46,7 +71,7 @@ class PendingLocationStore(context: Context) : SQLiteOpenHelper(context, "pendin
         )
     }
 
-    fun list(limit: Int = 200): List<PendingLocation> {
+    fun list(limit: Int = 400): List<PendingLocation> {
         val rows = mutableListOf<PendingLocation>()
         readableDatabase.query(
             "pending_locations",
@@ -93,8 +118,46 @@ class PendingLocationStore(context: Context) : SQLiteOpenHelper(context, "pendin
         cursor.getLong(0)
     }
 
+    fun enqueueEvent(id: String, payload: String) {
+        val values = ContentValues().apply {
+            put("id", id)
+            put("payload", payload)
+            put("created_at", System.currentTimeMillis())
+        }
+        writableDatabase.insertWithOnConflict("pending_events", null, values, SQLiteDatabase.CONFLICT_IGNORE)
+    }
+
+    fun listEvents(limit: Int = 20): List<PendingTrackerEvent> {
+        val rows = mutableListOf<PendingTrackerEvent>()
+        readableDatabase.query(
+            "pending_events",
+            arrayOf("id", "payload"),
+            null,
+            null,
+            null,
+            null,
+            "created_at ASC",
+            limit.coerceIn(1, 100).toString(),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                rows += PendingTrackerEvent(cursor.getString(0), cursor.getString(1))
+            }
+        }
+        return rows
+    }
+
+    fun deleteEvent(id: String) {
+        writableDatabase.delete("pending_events", "id=?", arrayOf(id))
+    }
+
+    fun eventCount(): Long = readableDatabase.rawQuery("SELECT count(*) FROM pending_events", null).use { cursor ->
+        cursor.moveToFirst()
+        cursor.getLong(0)
+    }
+
     fun trimOlderThan(days: Int = 7) {
         val cutoff = System.currentTimeMillis() - days.coerceAtLeast(1) * 24L * 60L * 60L * 1000L
         writableDatabase.delete("pending_locations", "created_at < ?", arrayOf(cutoff.toString()))
+        writableDatabase.delete("pending_events", "created_at < ?", arrayOf(cutoff.toString()))
     }
 }

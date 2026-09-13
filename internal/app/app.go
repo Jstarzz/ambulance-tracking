@@ -24,6 +24,9 @@ type Config struct {
 	SecureCookies    bool
 	UserSessionTTL   time.Duration
 	DeviceSessionTTL time.Duration
+	MFAKey           []byte
+	RouterURL        string
+	ETAFallbackKPH   float64
 }
 
 type App struct {
@@ -32,6 +35,9 @@ type App struct {
 	log         *slog.Logger
 	hub         *Hub
 	authLimiter *fixedWindowLimiter
+	httpClient  *http.Client
+	etaMu       sync.Mutex
+	etaCache    map[string]etaCacheEntry
 }
 
 type Hub struct {
@@ -57,29 +63,70 @@ func (h *Hub) broadcast(v any) {
 }
 
 func New(s *store.Store, cfg Config, log *slog.Logger) *App {
-	return &App{store: s, cfg: cfg, log: log, hub: NewHub(), authLimiter: newFixedWindowLimiter()}
+	if cfg.ETAFallbackKPH <= 0 {
+		cfg.ETAFallbackKPH = 35
+	}
+	return &App{
+		store:       s,
+		cfg:         cfg,
+		log:         log,
+		hub:         NewHub(),
+		authLimiter: newFixedWindowLimiter(),
+		httpClient:  &http.Client{Timeout: 5 * time.Second},
+		etaCache:    map[string]etaCacheEntry{},
+	}
 }
 
 func (a *App) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", a.health)
+
 	mux.HandleFunc("POST /api/v1/auth/login", a.login)
+	mux.HandleFunc("POST /api/v1/auth/mfa/verify", a.verifyMFA)
+	mux.HandleFunc("GET /api/v1/auth/session", a.requireUser(a.authSession, false))
 	mux.HandleFunc("POST /api/v1/auth/logout", a.requireUser(a.logout, true))
+	mux.HandleFunc("POST /api/v1/auth/mfa/setup", a.requireUser(a.setupMFA, true))
+	mux.HandleFunc("POST /api/v1/auth/mfa/confirm", a.requireUser(a.confirmMFA, true))
+
 	mux.HandleFunc("GET /api/v1/vehicles", a.requireUser(a.vehicles, false))
 	mux.HandleFunc("GET /api/v1/vehicles/{vehicleID}/history", a.requireUser(a.vehicleHistory, false))
+	mux.HandleFunc("GET /api/v1/vehicles/{vehicleID}/eta", a.requireUser(a.vehicleETA, false))
+	mux.HandleFunc("GET /api/v1/events", a.requireUser(a.recentEvents, false))
+	mux.HandleFunc("POST /api/v1/events/{eventID}/ack", a.requireUser(a.acknowledgeEvent, true))
 	mux.HandleFunc("GET /api/v1/dispatch/ws", a.requireUser(a.dispatchWS, false))
+
+	mux.HandleFunc("POST /api/v1/device/enroll", a.deviceEnroll)
 	mux.HandleFunc("POST /api/v1/device/session", a.deviceSession)
 	mux.HandleFunc("GET /api/v1/tracker/ws", a.trackerWS)
 	mux.HandleFunc("POST /api/v1/tracker/history", a.deviceAuth(a.history))
+	mux.HandleFunc("POST /api/v1/tracker/events", a.deviceAuth(a.trackerEvent))
+
+	mux.HandleFunc("POST /api/v1/admin/enrollments", a.requireUser(a.requireRole("admin", a.createEnrollment), true))
+	mux.HandleFunc("GET /api/v1/admin/enrollments", a.requireUser(a.requireRole("admin", a.listEnrollments), false))
+	mux.HandleFunc("GET /api/v1/admin/devices", a.requireUser(a.requireRole("admin", a.listDevices), false))
+	mux.HandleFunc("POST /api/v1/admin/devices/{deviceID}/revoke", a.requireUser(a.requireRole("admin", a.revokeDevice), true))
+	mux.HandleFunc("POST /api/v1/admin/api-tokens", a.requireUser(a.requireRole("admin", a.createAPIToken), true))
+	mux.HandleFunc("GET /api/v1/admin/api-tokens", a.requireUser(a.requireRole("admin", a.listAPITokens), false))
+	mux.HandleFunc("POST /api/v1/admin/api-tokens/{tokenID}/revoke", a.requireUser(a.requireRole("admin", a.revokeAPIToken), true))
+
+	mux.HandleFunc("GET /api/v1/ai/fleet-context", a.requireAPIScope("fleet:read", a.aiFleetContext))
+	mux.HandleFunc("GET /api/v1/ai/vehicles/{vehicleID}/context", a.requireAPIScope("fleet:read", a.aiVehicleContext))
+
 	return securityHeaders(requestLog(mux, a.log))
 }
 
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=(self)")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self' wss: https://tiles.openfreemap.org; img-src 'self' data: blob: https://tiles.openfreemap.org; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data: https://tiles.openfreemap.org; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -135,10 +182,10 @@ func (a *App) health(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), time.Second)
 	defer cancel()
 	if err := a.store.Health(ctx); err != nil {
-		writeJSON(w, 503, map[string]string{"status": "unhealthy"})
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "unhealthy"})
 		return
 	}
-	writeJSON(w, 200, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (a *App) login(w http.ResponseWriter, r *http.Request) {
@@ -155,34 +202,42 @@ func (a *App) login(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 	if readJSON(r, &in) != nil {
-		writeJSON(w, 400, map[string]string{"error": "invalid request"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return
 	}
 	u, err := a.store.AuthenticateUser(r.Context(), in.Username, in.Password)
 	if err != nil {
 		a.store.Audit(r.Context(), "user", in.Username, "login", "session", "", ip, "denied", nil)
 		time.Sleep(250 * time.Millisecond)
-		writeJSON(w, 401, map[string]string{"error": "invalid credentials"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
 	}
-	token, err := randomToken()
+	mfa, err := a.store.UserMFAConfig(r.Context(), u.ID)
 	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "session creation failed"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "authentication state unavailable"})
 		return
 	}
-	csrf, err := randomToken()
-	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "session creation failed"})
+	if mfa.Enabled {
+		if len(a.cfg.MFAKey) != 32 {
+			a.log.Error("MFA enabled but MFA_ENCRYPTION_KEY is unavailable", "user_id", u.ID)
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "MFA verification unavailable"})
+			return
+		}
+		challenge, err := randomToken()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "authentication challenge failed"})
+			return
+		}
+		expires := time.Now().Add(5 * time.Minute)
+		if err := a.store.CreateMFAChallenge(r.Context(), u.ID, challenge, expires); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "authentication challenge failed"})
+			return
+		}
+		a.store.Audit(r.Context(), "user", u.ID, "login.mfa_required", "session", "", ip, "success", nil)
+		writeJSON(w, http.StatusOK, map[string]any{"mfa_required": true, "challenge_token": challenge, "expires_at": expires})
 		return
 	}
-	expires := time.Now().Add(a.cfg.UserSessionTTL)
-	if err := a.store.CreateUserSession(r.Context(), u.ID, token, csrf, expires); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "session creation failed"})
-		return
-	}
-	http.SetCookie(w, &http.Cookie{Name: "ambulance_session", Value: token, Path: "/", HttpOnly: true, Secure: a.cfg.SecureCookies, SameSite: http.SameSiteStrictMode, Expires: expires, MaxAge: int(a.cfg.UserSessionTTL.Seconds())})
-	a.store.Audit(r.Context(), "user", u.ID, "login", "session", "", ip, "success", nil)
-	writeJSON(w, 200, map[string]any{"user": u, "csrf_token": csrf, "expires_at": expires})
+	a.issueUserSession(w, r, u)
 }
 
 func (a *App) sessionUser(r *http.Request) (store.User, string, error) {
@@ -198,11 +253,11 @@ func (a *App) requireUser(next http.HandlerFunc, csrf bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		u, token, err := a.sessionUser(r)
 		if err != nil {
-			writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
 		if csrf && !a.store.ValidateCSRF(r.Context(), token, r.Header.Get("X-CSRF-Token")) {
-			writeJSON(w, 403, map[string]string{"error": "csrf validation failed"})
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "csrf validation failed"})
 			return
 		}
 		ctx := context.WithValue(r.Context(), userContextKey{}, u)
@@ -232,11 +287,11 @@ func (a *App) vehicles(w http.ResponseWriter, r *http.Request) {
 	u := userFromContext(r.Context())
 	vs, err := a.store.VehicleSnapshots(r.Context())
 	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "query failed"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "query failed"})
 		return
 	}
 	a.store.Audit(r.Context(), "user", u.ID, "vehicles.read", "fleet", "", clientIP(r), "success", map[string]any{"count": len(vs)})
-	writeJSON(w, 200, map[string]any{"vehicles": vs, "server_time": time.Now().UTC()})
+	writeJSON(w, http.StatusOK, map[string]any{"vehicles": vs, "server_time": time.Now().UTC()})
 }
 
 func (a *App) deviceSession(w http.ResponseWriter, r *http.Request) {
@@ -253,27 +308,27 @@ func (a *App) deviceSession(w http.ResponseWriter, r *http.Request) {
 		DeviceKey   string `json:"device_key"`
 	}
 	if readJSON(r, &in) != nil {
-		writeJSON(w, 400, map[string]string{"error": "invalid request"})
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		return
 	}
 	d, err := a.store.DeviceByVehicleCodeAndKey(r.Context(), strings.TrimSpace(in.VehicleCode), in.DeviceKey)
 	if err != nil {
 		a.store.Audit(r.Context(), "device", in.VehicleCode, "device.session.create", "device", "", ip, "denied", nil)
-		writeJSON(w, 401, map[string]string{"error": "invalid device credentials"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid device credentials"})
 		return
 	}
 	token, err := randomToken()
 	if err != nil {
-		writeJSON(w, 500, map[string]string{"error": "session creation failed"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "session creation failed"})
 		return
 	}
 	expires := time.Now().Add(a.cfg.DeviceSessionTTL)
 	if err := a.store.CreateDeviceSession(r.Context(), d.ID, token, expires); err != nil {
-		writeJSON(w, 500, map[string]string{"error": "session creation failed"})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "session creation failed"})
 		return
 	}
 	a.store.Audit(r.Context(), "device", d.ID, "device.session.create", "device", d.ID, ip, "success", nil)
-	writeJSON(w, 200, map[string]any{"access_token": token, "expires_at": expires, "device": d})
+	writeJSON(w, http.StatusOK, map[string]any{"access_token": token, "expires_at": expires, "device": d})
 }
 
 func bearer(r *http.Request) string {
@@ -290,7 +345,7 @@ func (a *App) deviceAuth(next http.HandlerFunc) http.HandlerFunc {
 		token := bearer(r)
 		d, err := a.store.DeviceFromSession(r.Context(), token)
 		if err != nil {
-			writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
 		ctx := context.WithValue(r.Context(), deviceContextKey{}, d)
@@ -322,7 +377,7 @@ func (a *App) trackerWS(w http.ResponseWriter, r *http.Request) {
 	token := bearer(r)
 	d, err := a.store.DeviceFromSession(r.Context(), token)
 	if err != nil {
-		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{a.cfg.PublicOrigin}, CompressionMode: websocket.CompressionDisabled})
@@ -375,9 +430,8 @@ func (a *App) history(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Locations []store.Location `json:"locations"`
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 512<<10)
-	if err := json.NewDecoder(r.Body).Decode(&in); err != nil || len(in.Locations) == 0 || len(in.Locations) > 500 {
-		writeJSON(w, 400, map[string]string{"error": "invalid batch"})
+	if err := decodeReplayJSON(w, r, &in); err != nil || len(in.Locations) == 0 || len(in.Locations) > 500 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid batch"})
 		return
 	}
 	accepted := 0
@@ -402,14 +456,14 @@ func (a *App) history(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.store.Audit(r.Context(), "device", d.ID, "tracker.replay", "vehicle", d.VehicleID, clientIP(r), "success", map[string]any{"accepted": accepted, "duplicates": duplicates})
-	writeJSON(w, 200, map[string]int{"accepted": accepted, "duplicates": duplicates})
+	writeJSON(w, http.StatusOK, map[string]int{"accepted": accepted, "duplicates": duplicates})
 }
 
 func (a *App) dispatchWS(w http.ResponseWriter, r *http.Request) {
 	u := userFromContext(r.Context())
 	sessionCookie, err := r.Cookie("ambulance_session")
 	if err != nil {
-		writeJSON(w, 401, map[string]string{"error": "unauthorized"})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 		return
 	}
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{OriginPatterns: []string{a.cfg.PublicOrigin}, CompressionMode: websocket.CompressionDisabled})

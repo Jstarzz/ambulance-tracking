@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"log/slog"
 	"net/http"
 	"os"
@@ -33,6 +34,33 @@ func envBool(name string, fallback bool) bool {
 	return b
 }
 
+func envFloat(name string, fallback float64) float64 {
+	v := os.Getenv(name)
+	if v == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envKey32(name string) []byte {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return nil
+	}
+	decoded, err := base64.RawStdEncoding.DecodeString(raw)
+	if err != nil {
+		decoded, err = base64.StdEncoding.DecodeString(raw)
+	}
+	if err != nil || len(decoded) != 32 {
+		return nil
+	}
+	return decoded
+}
+
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ctx := context.Background()
@@ -54,11 +82,20 @@ func main() {
 		log.Error("demo device bootstrap failed", "error", err)
 		os.Exit(1)
 	}
+
+	mfaKey := envKey32("MFA_ENCRYPTION_KEY")
+	if os.Getenv("MFA_ENCRYPTION_KEY") != "" && len(mfaKey) != 32 {
+		log.Warn("MFA_ENCRYPTION_KEY is invalid; MFA setup/verification will remain unavailable")
+	}
+
 	a := app.New(s, app.Config{
 		PublicOrigin:     env("PUBLIC_ORIGIN", "localhost:*"),
 		SecureCookies:    envBool("SECURE_COOKIES", true),
 		UserSessionTTL:   8 * time.Hour,
 		DeviceSessionTTL: 15 * time.Minute,
+		MFAKey:           mfaKey,
+		RouterURL:        os.Getenv("ROUTER_URL"),
+		ETAFallbackKPH:   envFloat("ETA_FALLBACK_KPH", 35),
 	}, log)
 	srv := &http.Server{
 		Addr:              env("HTTP_ADDR", ":8080"),

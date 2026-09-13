@@ -16,10 +16,19 @@ val releaseSigningConfigured = listOf(
 
 val configuredVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
 val configuredVersionName = System.getenv("VERSION_NAME") ?: "0.1.0"
+val defaultServerUrl = System.getenv("TRACKER_DEFAULT_SERVER_URL")
+    ?.trim()
+    ?.trimEnd('/')
+    ?.takeIf { it.startsWith("https://") }
+    ?: "https://tracking.itsjosiahdavis.dev"
 
 android {
     namespace = "kn.org.ndhis.ambulancetracker"
     compileSdk = 35
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "kn.org.ndhis.ambulancetracker"
@@ -27,6 +36,7 @@ android {
         targetSdk = 35
         versionCode = configuredVersionCode
         versionName = configuredVersionName
+        buildConfigField("String", "DEFAULT_SERVER_URL", "\"$defaultServerUrl\"")
     }
 
     signingConfigs {

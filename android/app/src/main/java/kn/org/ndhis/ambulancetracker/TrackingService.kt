@@ -5,10 +5,13 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -20,8 +23,6 @@ import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
-import org.json.JSONArray
-import org.json.JSONObject
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -31,15 +32,20 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.zip.GZIPOutputStream
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
-class TrackingService : Service(), LocationListener {
+class TrackingService : Service(), LocationListener, SensorEventListener {
     companion object {
         const val ACTION_START = "kn.org.ndhis.ambulancetracker.START"
         const val ACTION_STOP = "kn.org.ndhis.ambulancetracker.STOP"
@@ -53,12 +59,11 @@ class TrackingService : Service(), LocationListener {
         const val EXTRA_NETWORK = "network"
         const val EXTRA_BUFFERED = "buffered"
         const val EXTRA_BATTERY = "battery"
+        const val EXTRA_SAFETY = "safety"
 
         private const val NOTIFICATION_CHANNEL = "tracking"
         private const val NOTIFICATION_ID = 1001
 
-        // Vehicle tracking should follow real movement without drawing the normal
-        // 10-30 m GNSS wander seen while a phone is stationary.
         private const val MIN_FIX_INTERVAL_MS = 800L
         private const val STATIONARY_HEARTBEAT_MS = 15_000L
         private const val MAX_ACCEPTABLE_ACCURACY_M = 50f
@@ -66,6 +71,15 @@ class TrackingService : Service(), LocationListener {
         private const val MIN_STATIONARY_RADIUS_M = 8f
         private const val MAX_STATIONARY_RADIUS_M = 30f
         private const val MAX_PLAUSIBLE_SPEED_MPS = 70f
+
+        // Advisory phone-sensor crash detector. It intentionally requires both a
+        // significant acceleration impulse and a moving vehicle. It is not an
+        // automatic emergency declaration; dispatchers must verify the alert.
+        private const val CRASH_G_THRESHOLD = 3.0f
+        private const val CRASH_CRITICAL_G = 4.5f
+        private const val CRASH_MIN_SPEED_MPS = 8.0f
+        private const val CRASH_COOLDOWN_MS = 60_000L
+        private const val STANDARD_GRAVITY = 9.80665f
     }
 
     private val client = OkHttpClient.Builder()
@@ -78,28 +92,40 @@ class TrackingService : Service(), LocationListener {
     private val ioExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private lateinit var locationThread: HandlerThread
+    private lateinit var locationHandler: Handler
     private lateinit var locationManager: LocationManager
+    private lateinit var sensorManager: SensorManager
     private lateinit var pendingStore: PendingLocationStore
 
     private val trackingSessionId = UUID.randomUUID().toString()
     private var sequenceNumber = 0L
     private var lastAcceptedElapsedMs = 0L
     private var lastAcceptedLocation: Location? = null
+    private var lastKnownSpeedMps = 0f
     private var reconnectDelayMs = 1_000L
     private var reconnectScheduled = false
     private var started = false
+
+    private var motionSensor: Sensor? = null
+    private var usingLinearAcceleration = false
+    private var gravityInitialized = false
+    private val gravity = FloatArray(3)
+    private var lastCrashElapsedMs = 0L
 
     @Volatile private var config: TrackerConfig? = null
     @Volatile private var accessToken: String? = null
     @Volatile private var socket: WebSocket? = null
     @Volatile private var connecting = false
+    @Volatile private var safetyState = "Crash detection starting"
 
     override fun onCreate() {
         super.onCreate()
         pendingStore = PendingLocationStore(applicationContext)
         pendingStore.trimOlderThan(7)
         locationManager = getSystemService(LocationManager::class.java)
+        sensorManager = getSystemService(SensorManager::class.java)
         locationThread = HandlerThread("ambulance-location").apply { start() }
+        locationHandler = Handler(locationThread.looper)
         createNotificationChannel()
     }
 
@@ -120,6 +146,7 @@ class TrackingService : Service(), LocationListener {
             config = loaded
             started = true
             startLocationUpdates()
+            startCrashDetection()
             authenticateAndConnect()
             publishTelemetry("Acquiring GPS")
         }
@@ -136,6 +163,7 @@ class TrackingService : Service(), LocationListener {
         val accepted = stabilizeLocation(location, nowElapsed) ?: return
         lastAcceptedElapsedMs = nowElapsed
         lastAcceptedLocation = Location(accepted)
+        lastKnownSpeedMps = if (accepted.hasSpeed()) accepted.speed else 0f
 
         val sequence = sequenceNumber++
         ioExecutor.execute {
@@ -155,7 +183,6 @@ class TrackingService : Service(), LocationListener {
         val distanceM = previous.distanceTo(candidate)
         val impliedSpeedMps = distanceM / elapsedSeconds
 
-        // Drop one-off teleports that cannot plausibly be an ambulance movement.
         if (impliedSpeedMps > MAX_PLAUSIBLE_SPEED_MPS &&
             (!candidate.hasSpeed() || candidate.speed < MAX_PLAUSIBLE_SPEED_MPS * 0.75f)
         ) {
@@ -172,10 +199,6 @@ class TrackingService : Service(), LocationListener {
         val looksStationary = reportedSpeed < STATIONARY_SPEED_MPS && distanceM <= stationaryRadius
 
         if (!looksStationary) return Location(candidate)
-
-        // While stationary, don't turn GNSS uncertainty into a scribbled route.
-        // Keep a stable coordinate and only emit a low-rate heartbeat so the
-        // backend still receives fresh telemetry without a fake path.
         if (nowElapsed - lastAcceptedElapsedMs < STATIONARY_HEARTBEAT_MS) return null
 
         return Location(candidate).apply {
@@ -199,11 +222,8 @@ class TrackingService : Service(), LocationListener {
             val networkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
 
             if (gpsEnabled) {
-                // Prefer GNSS for a vehicle tracker. Mixing NETWORK_PROVIDER fixes
-                // with GPS while outdoors is a common source of visible jumps.
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1_000L, 0f, this, looper)
             } else if (networkEnabled) {
-                // Network location is a fallback only when GPS itself is unavailable.
                 locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3_000L, 0f, this, looper)
             } else {
                 publishTelemetry("Location provider unavailable")
@@ -214,6 +234,96 @@ class TrackingService : Service(), LocationListener {
         } catch (_: IllegalArgumentException) {
             publishTelemetry("Location provider unavailable")
         }
+    }
+
+    private fun startCrashDetection() {
+        val linear = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
+        val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        motionSensor = linear ?: accelerometer
+        usingLinearAcceleration = linear != null
+        val sensor = motionSensor
+        if (sensor == null) {
+            safetyState = "Crash detection unavailable · no motion sensor"
+            publishTelemetry(if (socket != null) "Live" else "Acquiring GPS")
+            return
+        }
+        val registered = sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME, locationHandler)
+        safetyState = if (registered) {
+            "Crash detection armed · dispatcher verification required"
+        } else {
+            "Crash detection unavailable"
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+
+    override fun onSensorChanged(event: SensorEvent) {
+        if (!started || event.sensor != motionSensor) return
+        val x: Float
+        val y: Float
+        val z: Float
+        if (usingLinearAcceleration) {
+            x = event.values[0]
+            y = event.values[1]
+            z = event.values[2]
+        } else {
+            if (!gravityInitialized) {
+                gravity[0] = event.values[0]
+                gravity[1] = event.values[1]
+                gravity[2] = event.values[2]
+                gravityInitialized = true
+                return
+            }
+            val alpha = 0.85f
+            for (i in 0..2) gravity[i] = alpha * gravity[i] + (1f - alpha) * event.values[i]
+            x = event.values[0] - gravity[0]
+            y = event.values[1] - gravity[1]
+            z = event.values[2] - gravity[2]
+        }
+
+        val gForce = sqrt(x * x + y * y + z * z) / STANDARD_GRAVITY
+        val nowElapsed = SystemClock.elapsedRealtime()
+        if (gForce < CRASH_G_THRESHOLD || lastKnownSpeedMps < CRASH_MIN_SPEED_MPS) return
+        if (nowElapsed - lastCrashElapsedMs < CRASH_COOLDOWN_MS) return
+        lastCrashElapsedMs = nowElapsed
+        queueCrashCandidate(gForce)
+    }
+
+    private fun queueCrashCandidate(gForce: Float) {
+        val currentLocation = lastAcceptedLocation?.let { Location(it) }
+        val eventID = UUID.randomUUID().toString()
+        val severity = if (gForce >= CRASH_CRITICAL_G) "critical" else "warning"
+        val metadata = JSONObject()
+            .put("detector", "android_motion_v1")
+            .put("g_force", gForce.toDouble())
+            .put("speed_kph", (lastKnownSpeedMps * 3.6f).toDouble())
+            .put("requires_human_verification", true)
+        currentLocation?.takeIf { it.hasAccuracy() }?.let { metadata.put("accuracy_m", it.accuracy.toDouble()) }
+
+        val payload = JSONObject()
+            .put("id", eventID)
+            .put("tracking_session_id", trackingSessionId)
+            .put("event_type", "CRASH_SUSPECTED")
+            .put("severity", severity)
+            .put("recorded_at", Instant.now().toString())
+            .put("metadata", metadata)
+        currentLocation?.let {
+            payload.put("latitude", it.latitude)
+            payload.put("longitude", it.longitude)
+        }
+
+        ioExecutor.execute {
+            pendingStore.enqueueEvent(eventID, payload.toString())
+            safetyState = "Possible crash detected · alert queued for dispatcher"
+            publishTelemetry(if (socket != null) "Live" else "Offline — buffering", currentLocation)
+            accessToken?.let { flushEvents(it) }
+        }
+        mainHandler.postDelayed({
+            if (safetyState.startsWith("Possible crash")) {
+                safetyState = "Crash detection armed · dispatcher verification required"
+                publishTelemetry(if (socket != null) "Live" else "Offline — buffering", lastAcceptedLocation)
+            }
+        }, 30_000L)
     }
 
     private fun buildLocationPayload(location: Location, sequence: Long): JSONObject {
@@ -296,7 +406,10 @@ class TrackingService : Service(), LocationListener {
                 reconnectDelayMs = 1_000L
                 reconnectScheduled = false
                 publishTelemetry("Live")
-                ioExecutor.execute { flushBacklog(token) }
+                ioExecutor.execute {
+                    flushBacklog(token)
+                    flushEvents(token)
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -330,36 +443,62 @@ class TrackingService : Service(), LocationListener {
         })
     }
 
+    private fun gzip(bytes: ByteArray): ByteArray {
+        val output = ByteArrayOutputStream(bytes.size / 2)
+        GZIPOutputStream(output).use { it.write(bytes) }
+        return output.toByteArray()
+    }
+
     private fun flushBacklog(token: String) {
         val currentConfig = config ?: return
-        val rows = pendingStore.list(200)
-        if (rows.isEmpty()) return
+        while (true) {
+            val rows = pendingStore.list(400)
+            if (rows.isEmpty()) break
 
-        val locations = JSONArray()
-        for (row in rows) {
-            runCatching { locations.put(JSONObject(row.payload)) }
-        }
-        if (locations.length() == 0) return
+            val locations = JSONArray()
+            for (row in rows) runCatching { locations.put(JSONObject(row.payload)) }
+            if (locations.length() == 0) break
 
-        val body = JSONObject()
-            .put("locations", locations)
-            .toString()
-            .toRequestBody("application/json".toMediaType())
-        val request = Request.Builder()
-            .url("${currentConfig.serverUrl}/api/v1/tracker/history")
-            .header("Authorization", "Bearer $token")
-            .post(body)
-            .build()
+            val raw = JSONObject().put("locations", locations).toString().toByteArray(Charsets.UTF_8)
+            val compressed = gzip(raw)
+            val body = compressed.toRequestBody("application/json".toMediaType())
+            val request = Request.Builder()
+                .url("${currentConfig.serverUrl}/api/v1/tracker/history")
+                .header("Authorization", "Bearer $token")
+                .header("Content-Encoding", "gzip")
+                .header("X-Uncompressed-Bytes", raw.size.toString())
+                .post(body)
+                .build()
 
-        try {
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return
-                pendingStore.deleteIds(rows.map { it.id })
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return
+                    pendingStore.deleteIds(rows.map { it.id })
+                }
+            } catch (_: IOException) {
+                return
             }
-            if (pendingStore.count() > 0) flushBacklog(token)
-            publishTelemetry(if (socket != null) "Live" else "Offline — buffering")
-        } catch (_: IOException) {
-            // Keep the rows. A later reconnect will retry the same immutable records.
+        }
+        publishTelemetry(if (socket != null) "Live" else "Offline — buffering")
+    }
+
+    private fun flushEvents(token: String) {
+        val currentConfig = config ?: return
+        for (row in pendingStore.listEvents(20)) {
+            val body = row.payload.toRequestBody("application/json".toMediaType())
+            val request = Request.Builder()
+                .url("${currentConfig.serverUrl}/api/v1/tracker/events")
+                .header("Authorization", "Bearer $token")
+                .post(body)
+                .build()
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return
+                    pendingStore.deleteEvent(row.id)
+                }
+            } catch (_: IOException) {
+                return
+            }
         }
     }
 
@@ -400,6 +539,7 @@ class TrackingService : Service(), LocationListener {
             .putExtra(EXTRA_STATUS, status)
             .putExtra(EXTRA_NETWORK, networkType())
             .putExtra(EXTRA_BUFFERED, runCatching { pendingStore.count() }.getOrDefault(0L))
+            .putExtra(EXTRA_SAFETY, safetyState)
         batteryPercent()?.let { intent.putExtra(EXTRA_BATTERY, it) }
         if (location != null) {
             if (location.hasSpeed()) intent.putExtra(EXTRA_SPEED_MPS, location.speed)
@@ -447,6 +587,7 @@ class TrackingService : Service(), LocationListener {
     override fun onDestroy() {
         started = false
         mainHandler.removeCallbacksAndMessages(null)
+        sensorManager.unregisterListener(this)
         runCatching { locationManager.removeUpdates(this) }
         socket?.close(1000, "tracking stopped")
         socket = null

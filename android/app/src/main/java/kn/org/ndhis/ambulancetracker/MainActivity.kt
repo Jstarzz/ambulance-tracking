@@ -20,8 +20,17 @@ import android.view.View
 import android.view.WindowInsets
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import org.json.JSONObject
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.Icon
 import org.maplibre.android.annotations.IconFactory
@@ -34,8 +43,10 @@ import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
+import java.io.IOException
 import java.util.ArrayDeque
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
 class MainActivity : Activity() {
@@ -45,9 +56,18 @@ class MainActivity : Activity() {
         private const val MAX_TRAIL_POINTS = 300
     }
 
+    private val setupClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .build()
+
     private lateinit var serverUrl: EditText
     private lateinit var vehicleCode: EditText
     private lateinit var deviceKey: EditText
+    private lateinit var enrollmentCode: EditText
+    private lateinit var enrollmentRow: LinearLayout
+    private lateinit var advancedFields: LinearLayout
+    private lateinit var enrollButton: Button
     private lateinit var unitTitle: TextView
     private lateinit var statusText: TextView
     private lateinit var speedText: TextView
@@ -59,6 +79,7 @@ class MainActivity : Activity() {
     private lateinit var serverStateText: TextView
     private lateinit var mapUpdateText: TextView
     private lateinit var connectionHint: TextView
+    private lateinit var safetyText: TextView
     private lateinit var configToggleButton: Button
     private lateinit var recenterButton: Button
     private lateinit var mapView: MapView
@@ -72,7 +93,8 @@ class MainActivity : Activity() {
     private var lastMapPoint: LatLng? = null
     private var pendingStart = false
     private var receiverRegistered = false
-    private var configExpanded = true
+    private var configExpanded = false
+    private var provisioned = false
 
     private val telemetryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -82,6 +104,7 @@ class MainActivity : Activity() {
             renderStatus(status)
             networkText.text = intent.getStringExtra(TrackingService.EXTRA_NETWORK) ?: "—"
             bufferText.text = "${intent.getLongExtra(TrackingService.EXTRA_BUFFERED, 0L)} records"
+            intent.getStringExtra(TrackingService.EXTRA_SAFETY)?.let { safetyText.text = it }
 
             if (intent.hasExtra(TrackingService.EXTRA_SPEED_MPS)) {
                 val speed = intent.getFloatExtra(TrackingService.EXTRA_SPEED_MPS, 0f) * 3.6f
@@ -114,6 +137,10 @@ class MainActivity : Activity() {
         serverUrl = findViewById(R.id.serverUrl)
         vehicleCode = findViewById(R.id.vehicleCode)
         deviceKey = findViewById(R.id.deviceKey)
+        enrollmentCode = findViewById(R.id.enrollmentCode)
+        enrollmentRow = findViewById(R.id.enrollmentRow)
+        advancedFields = findViewById(R.id.advancedFields)
+        enrollButton = findViewById(R.id.enrollButton)
         unitTitle = findViewById(R.id.unitTitle)
         statusText = findViewById(R.id.statusText)
         speedText = findViewById(R.id.speedText)
@@ -125,10 +152,36 @@ class MainActivity : Activity() {
         serverStateText = findViewById(R.id.serverStateText)
         mapUpdateText = findViewById(R.id.mapUpdateText)
         connectionHint = findViewById(R.id.connectionHint)
+        safetyText = findViewById(R.id.safetyText)
         configToggleButton = findViewById(R.id.configToggleButton)
         recenterButton = findViewById(R.id.recenterButton)
         mapView = findViewById(R.id.mapView)
 
+        serverUrl.setText(BuildConfig.DEFAULT_SERVER_URL)
+        serverStateText.text = BuildConfig.DEFAULT_SERVER_URL.removePrefix("https://")
+        setConfigExpanded(false)
+
+        configureMap(savedInstanceState)
+
+        val savedConfig = SecureConfig.load(this)
+        if (savedConfig != null) {
+            applyConfig(savedConfig)
+            setProvisioned(true)
+        } else {
+            setProvisioned(false)
+        }
+
+        enrollButton.setOnClickListener { enrollDevice() }
+        configToggleButton.setOnClickListener { setConfigExpanded(!configExpanded) }
+        findViewById<Button>(R.id.startButton).setOnClickListener { prepareStart() }
+        findViewById<Button>(R.id.stopButton).setOnClickListener {
+            startService(Intent(this, TrackingService::class.java).setAction(TrackingService.ACTION_STOP))
+            renderStatus("Stopped")
+            safetyText.text = "Crash detection arms while tracking"
+        }
+    }
+
+    private fun configureMap(savedInstanceState: Bundle?) {
         mapView.onCreate(savedInstanceState)
         mapView.setOnTouchListener { view, event ->
             when (event.actionMasked) {
@@ -154,9 +207,7 @@ class MainActivity : Activity() {
                 .target(LatLng(17.31, -62.75))
                 .zoom(10.5)
                 .build()
-            readyMap.setStyle(MAP_STYLE) {
-                redrawTrail()
-            }
+            readyMap.setStyle(MAP_STYLE) { redrawTrail() }
         }
 
         recenterButton.setOnClickListener {
@@ -169,47 +220,104 @@ class MainActivity : Activity() {
                 mapUpdateText.text = "Waiting for GPS"
             }
         }
+    }
 
-        val savedConfig = SecureConfig.load(this)
-        if (savedConfig != null) {
-            serverUrl.setText(savedConfig.serverUrl)
-            vehicleCode.setText(savedConfig.vehicleCode)
-            deviceKey.setText(savedConfig.deviceKey)
-            unitTitle.text = savedConfig.vehicleCode
-            serverStateText.text = savedConfig.serverUrl.removePrefix("https://").removePrefix("http://")
-            setConfigExpanded(false)
-        } else {
-            setConfigExpanded(true)
+    private fun enrollDevice() {
+        val url = serverUrl.text.toString().trim().trimEnd('/')
+        val code = enrollmentCode.text.toString().trim().uppercase(Locale.US)
+        if (!url.startsWith("https://")) {
+            Toast.makeText(this, "Server URL must use HTTPS.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (code.length !in 8..9) {
+            Toast.makeText(this, "Enter the one-time enrollment code.", Toast.LENGTH_LONG).show()
+            return
         }
 
-        configToggleButton.setOnClickListener { setConfigExpanded(!configExpanded) }
-        findViewById<Button>(R.id.startButton).setOnClickListener { prepareStart() }
-        findViewById<Button>(R.id.stopButton).setOnClickListener {
-            startService(Intent(this, TrackingService::class.java).setAction(TrackingService.ACTION_STOP))
-            renderStatus("Stopped")
+        enrollButton.isEnabled = false
+        enrollButton.text = "Registering…"
+        val body = JSONObject()
+            .put("enrollment_code", code)
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url("$url/api/v1/device/enroll")
+            .post(body)
+            .build()
+
+        setupClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread {
+                    enrollButton.isEnabled = true
+                    enrollButton.text = "Register this device"
+                    Toast.makeText(this@MainActivity, "Could not reach the tracking server.", Toast.LENGTH_LONG).show()
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    val payload = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        runOnUiThread {
+                            enrollButton.isEnabled = true
+                            enrollButton.text = "Register this device"
+                            Toast.makeText(this@MainActivity, "Enrollment code is invalid, expired, or already used.", Toast.LENGTH_LONG).show()
+                        }
+                        return
+                    }
+                    val json = runCatching { JSONObject(payload) }.getOrNull()
+                    val device = json?.optJSONObject("device")
+                    val returnedCode = device?.optString("vehicle_code").orEmpty()
+                    val returnedKey = json?.optString("device_key").orEmpty()
+                    if (returnedCode.isBlank() || returnedKey.length < 16) {
+                        runOnUiThread {
+                            enrollButton.isEnabled = true
+                            enrollButton.text = "Register this device"
+                            Toast.makeText(this@MainActivity, "Server returned an invalid enrollment response.", Toast.LENGTH_LONG).show()
+                        }
+                        return
+                    }
+                    val config = TrackerConfig(url, returnedCode, returnedKey)
+                    SecureConfig.save(applicationContext, config)
+                    runOnUiThread {
+                        applyConfig(config)
+                        enrollmentCode.text.clear()
+                        enrollButton.isEnabled = true
+                        enrollButton.text = "Register this device"
+                        setProvisioned(true)
+                        Toast.makeText(this@MainActivity, "$returnedCode registered. Ready to track.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        })
+    }
+
+    private fun applyConfig(config: TrackerConfig) {
+        serverUrl.setText(config.serverUrl)
+        vehicleCode.setText(config.vehicleCode)
+        deviceKey.setText(config.deviceKey)
+        unitTitle.text = config.vehicleCode
+        serverStateText.text = config.serverUrl.removePrefix("https://").removePrefix("http://")
+    }
+
+    private fun setProvisioned(value: Boolean) {
+        provisioned = value
+        enrollmentRow.visibility = if (value) View.GONE else View.VISIBLE
+        val host = serverUrl.text.toString().removePrefix("https://").removePrefix("http://").trimEnd('/')
+        val code = vehicleCode.text.toString().trim()
+        if (value) {
+            connectionHint.text = "$code is securely registered · $host"
+            unitTitle.text = code.ifBlank { "Ambulance unit" }
+        } else {
+            connectionHint.text = "Enter the one-time enrollment code from the dispatcher admin panel."
+            unitTitle.text = "Register this ambulance"
         }
     }
 
     private fun setConfigExpanded(expanded: Boolean) {
         configExpanded = expanded
-        val fieldVisibility = if (expanded) View.VISIBLE else View.GONE
-        serverUrl.visibility = fieldVisibility
-        vehicleCode.visibility = fieldVisibility
-        deviceKey.visibility = fieldVisibility
-        configToggleButton.text = if (expanded) "Hide configuration" else "Edit configuration"
-
-        if (expanded) {
-            connectionHint.text = "Provision this device with its server endpoint and unit credentials."
-            return
-        }
-
-        val code = vehicleCode.text.toString().trim()
-        val host = serverStateText.text.toString().trim()
-        connectionHint.text = when {
-            code.isNotBlank() && host.isNotBlank() -> "$code · $host"
-            code.isNotBlank() -> code
-            else -> "Device configuration saved"
-        }
+        advancedFields.visibility = if (expanded) View.VISIBLE else View.GONE
+        configToggleButton.text = if (expanded) "Hide advanced settings" else "Advanced settings"
     }
 
     private fun applySystemBarInsets() {
@@ -246,9 +354,7 @@ class MainActivity : Activity() {
     private fun updateMap(point: LatLng) {
         lastMapPoint = point
         trailPoints.addLast(point)
-        while (trailPoints.size > MAX_TRAIL_POINTS) {
-            trailPoints.removeFirst()
-        }
+        while (trailPoints.size > MAX_TRAIL_POINTS) trailPoints.removeFirst()
         redrawTrail()
 
         val readyMap = map ?: return
@@ -269,12 +375,10 @@ class MainActivity : Activity() {
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-
         paint.color = getColor(R.color.app_bg)
         canvas.drawCircle(size / 2f, size / 2f, radius + outline, paint)
         paint.color = getColor(R.color.app_teal)
         canvas.drawCircle(size / 2f, size / 2f, radius, paint)
-
         return IconFactory.getInstance(this).fromBitmap(bitmap)
     }
 
@@ -300,10 +404,7 @@ class MainActivity : Activity() {
         val line = routeLine
         if (line == null) {
             routeLine = readyMap.addPolyline(
-                PolylineOptions()
-                    .addAll(points)
-                    .color(Color.rgb(85, 184, 175))
-                    .width(4f),
+                PolylineOptions().addAll(points).color(Color.rgb(85, 184, 175)).width(4f),
             )
         } else {
             line.points = points
@@ -344,6 +445,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         mapView.onDestroy()
+        setupClient.dispatcher.executorService.shutdown()
         super.onDestroy()
     }
 
@@ -367,14 +469,14 @@ class MainActivity : Activity() {
             return
         }
         if (code.isBlank() || key.length < 16) {
-            Toast.makeText(this, "Vehicle code and a valid device key are required.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Register this device first, or enter manual credentials in Advanced settings.", Toast.LENGTH_LONG).show()
             return
         }
 
-        SecureConfig.save(this, TrackerConfig(url, code, key))
-        vehicleCode.setText(code)
-        unitTitle.text = code
-        serverStateText.text = url.removePrefix("https://").removePrefix("http://")
+        val config = TrackerConfig(url, code, key)
+        SecureConfig.save(this, config)
+        applyConfig(config)
+        setProvisioned(true)
         setConfigExpanded(false)
         if (!hasFineLocation()) {
             pendingStart = true
@@ -391,6 +493,7 @@ class MainActivity : Activity() {
         val intent = Intent(this, TrackingService::class.java).setAction(TrackingService.ACTION_START)
         startForegroundService(intent)
         renderStatus("Starting")
+        safetyText.text = "Crash detection armed · alerts require dispatcher verification"
     }
 
     private fun hasFineLocation(): Boolean =
