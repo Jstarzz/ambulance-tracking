@@ -11,7 +11,6 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.os.Build
 import android.os.Bundle
@@ -302,7 +301,7 @@ class MainActivity : Activity() {
             routeLine = readyMap.addPolyline(
                 PolylineOptions()
                     .addAll(points)
-                    .color(Color.rgb(76, 141, 255))
+                    .color(getColor(R.color.app_blue))
                     .width(4f),
             )
         } else {
