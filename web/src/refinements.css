@@ -1,4 +1,4 @@
-/* Operational map UI: neutral surfaces, semantic status color, blue interaction color. */
+/* Operational map UI: full-bleed map, quiet chrome, semantic status colors. */
 
 :root {
   --bg: #0b0d10;
@@ -40,23 +40,74 @@ select:focus-visible {
   background: var(--bg);
 }
 
-.topbar,
-.map-toolbar,
-.playback-panel {
-  background: #101317;
-}
-
 .topbar {
   height: 58px;
+  background: #101317;
+  border-color: var(--line-soft);
+  z-index: 20;
 }
 
+/* Google/Apple Maps style composition: the map is the workspace, panels float on it. */
 .workspace {
-  grid-template-columns: 248px minmax(0, 1fr) 304px;
+  position: relative;
+  display: block;
+  min-height: 0;
+  overflow: hidden;
+  background: #0d1014;
+}
+
+.map-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: 46px minmax(0, 1fr) auto;
+  background: #0d1014;
+}
+
+.map-toolbar,
+.playback-panel {
+  background: rgba(16, 19, 23, .96);
+  border-color: var(--line-soft);
+}
+
+.map-toolbar {
+  padding-left: 326px;
+  padding-right: 354px;
+}
+
+.map-wrap,
+.map {
+  background: #0d1014;
 }
 
 .fleet-panel,
 .details-panel {
-  background: #121519;
+  position: absolute;
+  top: 58px;
+  bottom: 16px;
+  z-index: 10;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(18, 21, 25, .97);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .34);
+  backdrop-filter: blur(8px);
+}
+
+.fleet-panel {
+  left: 16px;
+  width: 292px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.details-panel {
+  right: 16px;
+  width: 320px;
+  padding: 16px 18px;
+  overflow: auto;
 }
 
 .panel-heading,
@@ -99,18 +150,9 @@ select:focus-visible {
   border-radius: 0;
 }
 
-.map-stage {
-  background: #0d1014;
-  grid-template-rows: 46px minmax(0, 1fr) auto;
-}
-
-.map-toolbar {
-  border-color: var(--line-soft);
-}
-
-.map-wrap,
-.map {
-  background: #0d1014;
+.maplibregl-ctrl-top-right {
+  top: 58px !important;
+  right: 352px !important;
 }
 
 .maplibregl-ctrl-group {
@@ -155,9 +197,9 @@ select:focus-visible {
 
 .primary-button {
   border-color: #4c8dff;
+  border-radius: 4px;
   background: #4c8dff;
   color: #fff;
-  border-radius: 4px;
 }
 
 .primary-button:hover {
@@ -184,13 +226,14 @@ select:focus-visible {
   background: #1e242b;
 }
 
+.playback-panel {
+  padding-left: 326px;
+  padding-right: 354px;
+}
+
 .timeline {
   height: 18px;
   accent-color: var(--focus);
-}
-
-.details-panel {
-  padding: 16px 18px;
 }
 
 .current-position {
@@ -242,9 +285,23 @@ select:focus-visible {
   box-shadow: none;
 }
 
-@media (max-width: 1180px) and (min-width: 861px) {
-  .workspace {
-    grid-template-columns: 232px minmax(0, 1fr) 276px;
+@media (max-width: 1180px) {
+  .fleet-panel {
+    width: 256px;
+  }
+
+  .details-panel {
+    width: 284px;
+  }
+
+  .map-toolbar,
+  .playback-panel {
+    padding-left: 290px;
+    padding-right: 318px;
+  }
+
+  .maplibregl-ctrl-top-right {
+    right: 316px !important;
   }
 
   .topbar {
@@ -256,12 +313,30 @@ select:focus-visible {
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 900px) {
   .details-panel {
     display: none;
   }
 
-  .workspace {
-    grid-template-columns: 220px minmax(0, 1fr);
+  .map-toolbar,
+  .playback-panel {
+    padding-left: 290px;
+    padding-right: 14px;
+  }
+
+  .maplibregl-ctrl-top-right {
+    right: 14px !important;
+  }
+}
+
+@media (max-width: 680px) {
+  .fleet-panel {
+    left: 8px;
+    width: 216px;
+  }
+
+  .map-toolbar,
+  .playback-panel {
+    padding-left: 238px;
   }
 }
