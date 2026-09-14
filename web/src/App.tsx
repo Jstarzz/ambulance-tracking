@@ -53,6 +53,16 @@ type RoutePlan = {
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 const EMPTY_GEOJSON = { type: 'FeatureCollection' as const, features: [] };
+const UNIT_ICON_PATH = 'M10 3h4v7h7v4h-7v7h-4v-7H3v-4h7V3Z';
+const UNIT_ICON_SVG = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${UNIT_ICON_PATH}"/></svg>`;
+
+function UnitIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d={UNIT_ICON_PATH} />
+    </svg>
+  );
+}
 
 function freshnessFromTime(recordedAt?: string): Freshness {
   if (!recordedAt) return 'NO DATA';
@@ -279,7 +289,7 @@ function MapView({
         element.setAttribute('aria-label', `Select ${vehicle.vehicle_code}`);
         const symbol = document.createElement('span');
         symbol.className = 'marker-symbol';
-        symbol.textContent = '+';
+        symbol.innerHTML = UNIT_ICON_SVG;
         const label = document.createElement('span');
         label.className = 'marker-label';
         element.append(symbol, label);
@@ -416,14 +426,14 @@ function Login({ onAuthenticated }: { onAuthenticated: () => void }) {
           <p>Live ambulance locations and route history.</p>
         </div>
         <label>
-          Username
+          <span className="field-label">Username<span className="required-mark" aria-hidden="true">*</span></span>
           <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required />
         </label>
         <label>
-          Password
+          <span className="field-label">Password<span className="required-mark" aria-hidden="true">*</span></span>
           <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
         </label>
-        {error && <div className="error" role="alert">{error}</div>}
+        <div className="error" role="alert" aria-live="assertive">{error}</div>
         <button className="primary-button" type="submit" disabled={submitting}>{submitting ? 'Signing in…' : 'Sign in'}</button>
       </form>
     </main>
@@ -512,7 +522,9 @@ export default function App() {
 
   useEffect(() => { void loadFleet(); }, []);
   useEffect(() => {
-    const timer = window.setInterval(() => setClock((value) => value + 1), 1000);
+    // Freshness buckets resolve at 5s/30s/120s boundaries, so updating more often
+    // only re-renders the dispatcher without changing any visible state.
+    const timer = window.setInterval(() => setClock((value) => value + 1), 5000);
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
@@ -678,6 +690,7 @@ export default function App() {
 
   return (
     <main className="dispatcher-shell">
+      <h1 className="visually-hidden">EMS Tracker dispatcher console</h1>
       <section className="dispatcher-map" aria-label="Dispatcher live map">
         <MapView
           vehicles={filteredVehicles}
@@ -715,10 +728,10 @@ export default function App() {
                 key={vehicle.vehicle_id}
                 onClick={() => { setSelectedVehicleId(vehicle.vehicle_id); setHistoryOpen(false); }}
               >
-                <span className={`unit-badge ${statusClass(state)}`}>+</span>
+                <span className={`unit-badge ${statusClass(state)}`}><UnitIcon /></span>
                 <span className="vehicle-copy">
                   <strong>{vehicle.vehicle_code}</strong>
-                  <small>{vehicle.label || vehicle.status}</small>
+                  <small>{vehicle.label && vehicle.label !== vehicle.vehicle_code ? vehicle.label : vehicle.status}</small>
                 </span>
                 <span className="vehicle-age">{ageLabel(vehicle.location?.recorded_at)}</span>
               </button>
@@ -733,7 +746,7 @@ export default function App() {
         </div>
       </aside>
 
-      <div className="map-top-controls">
+      <div className="map-top-controls" id="map-top-controls">
         <div className="filter-group" role="group" aria-label="Fleet filter">
           {(['ALL', 'LIVE', 'OFFLINE'] as FleetFilter[]).map((value) => (
             <button key={value} className={fleetFilter === value ? 'active' : ''} onClick={() => setFleetFilter(value)}>
@@ -757,7 +770,7 @@ export default function App() {
             <div className="inspector-head">
               <div>
                 <h2>{selectedVehicle.vehicle_code}</h2>
-                <p>{selectedVehicle.label || 'Ambulance unit'}</p>
+                <p>{selectedVehicle.label && selectedVehicle.label !== selectedVehicle.vehicle_code ? selectedVehicle.label : 'Ambulance unit'}</p>
               </div>
               <span className={`state-pill ${statusClass(freshness(selectedVehicle))}`}>
                 <i />{freshness(selectedVehicle) === 'LIVE' ? 'Online' : freshness(selectedVehicle)}
