@@ -1,28 +1,31 @@
 # Ambulance Tracking
 
-Real-time ambulance/device tracking prototype for Saint Kitts and Nevis.
+Real-time ambulance tracking prototype for Saint Kitts and Nevis, built around unreliable mobile connectivity and a map-first dispatcher workflow.
 
 ## Stack
 
-- **Tracker:** native Android/Kotlin, foreground GNSS service, app-private SQLite offline queue, MapLibre client map
+- **Tracker:** native Android/Kotlin, foreground GNSS service, Android Keystore-backed configuration, app-private SQLite offline queue, MapLibre map
 - **API/realtime:** Go, HTTP + WebSockets
 - **Data:** PostgreSQL 17 + PostGIS
 - **Dispatcher:** React 19 + strict TypeScript + MapLibre
-- **Maps:** OpenFreeMap dark vector style backed by OpenStreetMap data
+- **Maps:** OpenFreeMap vector maps backed by OpenStreetMap data
+- **Routing:** optional OSRM-compatible road router with explicit approximate ETA fallback
 - **Edge:** Caddy on the private Docker network + Cloudflare Tunnel for public ingress
-- **Deployment:** Docker Compose on a single on-island server
+- **Deployment:** Docker Compose on a single server/VM
 
-The tracker captures location locally before transmission. A lost Wi-Fi/cellular connection therefore does not stop GNSS collection: records remain queued and are replayed idempotently after connectivity returns.
+The tracker captures accepted GNSS locations locally before transmission. Losing Wi-Fi/cellular service therefore does not stop collection: records remain queued and replay idempotently after connectivity returns.
 
-Both the Android tracker and dispatcher show live position updates. The dispatcher centers on a fleet map of provisioned vehicles, receives explicit WebSocket node-presence events, and supports bounded historical route playback for the previous 1, 6, or 24 hours.
+The dispatcher provides live fleet position, explicit tracker presence, route history, map-click route planning, and continuously refreshed ETA for a selected ambulance.
 
 ## Repository workflow
 
 Development happens through pull requests into `dev`; `main` is reserved for release-ready code.
 
+See [`CHANGELOG.md`](CHANGELOG.md) for notable behavior changes and [`docs/README.md`](docs/README.md) for the engineering/operations documentation set.
+
 ## Production deployment: no public IP required
 
-The preferred deployment uses **Cloudflare Tunnel**. The St. Kitts server only needs outbound Internet access; the application publishes no host HTTP/HTTPS ports.
+The preferred deployment uses **Cloudflare Tunnel**. The server only needs outbound Internet access; the application publishes no host HTTP/HTTPS or PostgreSQL ports in the supplied production topology.
 
 In Cloudflare, create a remotely-managed tunnel and add a published application such as:
 
@@ -40,7 +43,7 @@ chmod +x scripts/deploy-cloudflare.sh
 ./scripts/deploy-cloudflare.sh
 ```
 
-See [`docs/CLOUDFLARE.md`](docs/CLOUDFLARE.md) for the exact Cloudflare dashboard, firewall, verification, and local-development steps.
+See [`docs/CLOUDFLARE.md`](docs/CLOUDFLARE.md) for the deployment details.
 
 ## Local development
 
@@ -55,21 +58,55 @@ PostgreSQL is never published by the supplied Compose topology.
 
 ## Android tracker
 
-Build a debug APK with Android Studio or Gradle.
+Build a debug APK with Android Studio or Gradle, or use the Android artifact produced by CI.
 
-On the phone:
+Normal provisioning is intentionally simple:
 
-1. Enter the HTTPS server URL, vehicle code, and provisioned device key.
-2. Grant precise location permission.
-3. Tap **Start tracking** while the app is visible. Android starts a location foreground service and displays the required ongoing notification.
-4. The client map follows the current GNSS fix and draws the recent on-device trail while tracking is active.
-5. Wi-Fi is not required. GNSS continues without internet access; live transmission can use cellular data. If all internet connectivity disappears, fixes remain in the local SQLite queue and replay when the server becomes reachable again.
+1. A dispatcher opens **Register tracker** and selects the ambulance.
+2. The dashboard generates a short-lived, one-time 8-character code.
+3. Enter that code on the ambulance phone.
+4. Grant precise location permission and notification permission when Android requests them.
+5. Tap **Start tracking** while the app is visible.
 
-Device secrets are encrypted with Android Keystore. Tracker payloads contain vehicle/location telemetry only; there are no patient or clinical fields.
+The production server origin is part of the Android build configuration and long-lived device credentials are issued/stored behind the enrollment flow; normal ambulance users do not type either value.
+
+While tracking:
+
+- Android runs an ongoing foreground location service;
+- GPS/GNSS is preferred over network positioning;
+- poor-accuracy fixes, stationary drift, and implausible jumps are filtered;
+- the phone map follows the accepted location and draws a recent trail;
+- the operational bottom sheet can be collapsed to expose more map;
+- closing/reopening the activity restores tracker state immediately and then reconciles with the running service;
+- the app reports whether Android battery optimization is active and links to battery settings; and
+- if Internet connectivity disappears, accepted fixes remain in the local SQLite queue until the server becomes reachable again.
+
+For Android/dispatcher/server requirements and Battery Saver caveats, see [`docs/SYSTEM_REQUIREMENTS.md`](docs/SYSTEM_REQUIREMENTS.md).
+
+## Dispatcher route planning and ETA
+
+Select an ambulance and press **Route**, then click a destination on the map. The dispatcher requests:
+
+```http
+GET /api/v1/vehicles/{vehicleID}/route?lat={latitude}&lon={longitude}
+```
+
+If `ROUTER_URL` points at an OSRM-compatible routing service, the response contains road geometry, route distance, duration, and ETA. An active route refreshes on a bounded 20-second cadence from the latest persisted vehicle location rather than calling the router for every 1 Hz telemetry update.
+
+If the road router is absent or temporarily unavailable, the API returns an explicit `approximate: true` fallback. The UI labels it as approximate; it is not presented as turn-by-turn road navigation.
+
+Configuration:
+
+```text
+ROUTER_URL=https://your-router.example
+ETA_FALLBACK_KPH=35
+```
+
+See [`docs/TRACKER_LIFECYCLE_AND_ROUTING.md`](docs/TRACKER_LIFECYCLE_AND_ROUTING.md).
 
 ## Wire protocol
 
-A tracker first exchanges its long-lived per-device credential for a short-lived session:
+A provisioned tracker exchanges its long-lived device credential for a short-lived session:
 
 ```http
 POST /api/v1/device/session
@@ -95,14 +132,20 @@ GET /api/v1/vehicles/{vehicleID}/history?hours=1
 
 `hours` is bounded to 1–24 and large result sets are deterministically down-sampled before they reach the browser.
 
+See [`docs/API.md`](docs/API.md) for the protocol reference.
+
+## Validation status
+
+The public deployment has been functionally validated end-to-end, including authenticated tracker telemetry through persistence/ACK/broadcast and a real Android drive with offline collection/replay. The current validated VM baseline is documented in [`docs/DEPLOYMENT_VALIDATION.md`](docs/DEPLOYMENT_VALIDATION.md).
+
+A formal concurrent-fleet capacity ceiling has **not** been measured, so the project does not claim one.
+
 ## HIPAA boundary
 
-This code implements technical safeguards intended to support a HIPAA-regulated deployment: unique user/device identities, encrypted transport assumptions, secure session handling, audit events, least-exposed networking, replay-safe telemetry, and deliberate exclusion of patient data.
+This repository contains technical safeguards that can support a regulated deployment, including unique user/device identities, secure-session design, least-exposed networking, replay-safe telemetry, and deliberate exclusion of patient fields.
 
-**Code alone cannot make an organization or deployment HIPAA compliant.** Before any ePHI is introduced, complete the operational requirements in [`docs/HIPAA.md`](docs/HIPAA.md), including risk analysis, BAAs, access procedures, backups, incident response, device management, production MFA/SSO, and encryption/backup controls.
+**Code alone does not make an organization or deployment HIPAA compliant.** Before introducing ePHI, complete the organizational and deployment requirements in [`docs/HIPAA.md`](docs/HIPAA.md): risk analysis, BAAs where required, access procedures, backups, incident response, device management, identity assurance, and other administrative/physical safeguards.
 
-If Cloudflare will create, receive, maintain, or transmit ePHI, do not put a normal self-serve Cloudflare plan in that path and call it compliant. Cloudflare states that it only enters HIPAA BAAs with Enterprise customers.
+## Mapping/routing dependency note
 
-## Prototype mapping note
-
-The current client and dispatcher use OpenFreeMap-hosted vector tiles/styles with OpenStreetMap data. This is appropriate for the prototype, but a production EMS deployment should not make emergency operations depend on a free public tile service. For production, use a contracted provider with suitable availability terms or self-host the small Saint Kitts and Nevis vector-tile dataset.
+The current map uses OpenFreeMap-hosted vector resources. The optional route API can use an OSRM-compatible provider. A production EMS deployment should not make emergency operations depend on free public demonstration infrastructure; use contracted services with appropriate availability terms or self-host the small regional map/routing dataset.

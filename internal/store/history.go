@@ -92,3 +92,36 @@ func (s *Store) LocationHistory(ctx context.Context, vehicleID string, since tim
 	}
 	return locations, rows.Err()
 }
+
+// LatestLocation returns the newest persisted fix for a vehicle. Route planning
+// uses persisted telemetry rather than transient WebSocket state so a dispatcher
+// can still plan from the last known position after a tracker disconnects.
+func (s *Store) LatestLocation(ctx context.Context, vehicleID string) (Location, error) {
+	var l Location
+	err := s.pool.QueryRow(ctx, `
+		SELECT l.device_id::text, l.vehicle_id::text, v.code,
+			l.tracking_session_id::text, l.sequence_number, l.recorded_at,
+			l.latitude, l.longitude, l.accuracy_m, l.speed_mps,
+			l.bearing_deg, l.altitude_m, l.battery_pct, l.network_type
+		FROM location_events l
+		JOIN vehicles v ON v.id = l.vehicle_id
+		WHERE l.vehicle_id::text = $1
+		ORDER BY l.recorded_at DESC
+		LIMIT 1`, vehicleID).Scan(
+		&l.DeviceID,
+		&l.VehicleID,
+		&l.VehicleCode,
+		&l.TrackingSessionID,
+		&l.SequenceNumber,
+		&l.RecordedAt,
+		&l.Latitude,
+		&l.Longitude,
+		&l.AccuracyM,
+		&l.SpeedMPS,
+		&l.BearingDeg,
+		&l.AltitudeM,
+		&l.BatteryPct,
+		&l.NetworkType,
+	)
+	return l, err
+}

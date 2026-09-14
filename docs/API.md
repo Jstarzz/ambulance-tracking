@@ -166,6 +166,67 @@ The response contains chronological locations from the most recent tracking sess
 
 Large histories are deterministically down-sampled server-side to at most 5,000 points.
 
+## Route planning and live ETA
+
+### `GET /api/v1/vehicles/{vehicleID}/route?lat={latitude}&lon={longitude}`
+
+Requires an authenticated dispatcher session.
+
+The server reads the selected vehicle's newest persisted location and plans from that position to the supplied destination.
+
+Example:
+
+```bash
+curl -sS -b cookies.txt \
+  'https://tracking.itsjosiahdavis.dev/api/v1/vehicles/<vehicle-id>/route?lat=17.329&lon=-62.779'
+```
+
+When `ROUTER_URL` points to an OSRM-compatible router and that router returns a usable route, the response contains road geometry, distance, and duration:
+
+```json
+{
+  "vehicle_id": "...",
+  "origin": {
+    "latitude": 17.3029,
+    "longitude": -62.7178,
+    "accuracy_m": 8.4
+  },
+  "destination": {
+    "latitude": 17.329,
+    "longitude": -62.779
+  },
+  "distance_m": 7800,
+  "duration_seconds": 690,
+  "eta_at": "2026-09-14T14:20:00Z",
+  "method": "road_route",
+  "approximate": false,
+  "geometry": {
+    "type": "LineString",
+    "coordinates": [
+      [-62.7178, 17.3029],
+      [-62.7200, 17.3050]
+    ]
+  },
+  "location_recorded_at": "2026-09-14T14:08:20Z",
+  "generated_at": "2026-09-14T14:08:30Z"
+}
+```
+
+If no routing service is configured or the router is unavailable, the endpoint still returns `200` with a continuity estimate based on straight-line distance, a road-distance factor, and the vehicle's live speed when useful. In that case:
+
+```json
+{
+  "method": "kinematic_fallback",
+  "approximate": true
+}
+```
+
+Clients **must** preserve the `approximate` distinction. The fallback geometry is not a road path and must not be presented as turn-by-turn navigation.
+
+Invalid destination coordinates return `400`. A vehicle with no persisted location returns `404`.
+
+The dispatcher refreshes an active route on a bounded cadence rather than routing every incoming 1 Hz telemetry sample.
+
 ## Dispatcher realtime WebSocket
 
 ### `GET /api/v1/dispatch/ws`
@@ -384,6 +445,7 @@ Common status codes:
 | 400 | Invalid request or validation failure |
 | 401 | Missing/invalid user or device authentication |
 | 403 | CSRF validation failed |
+| 404 | Requested route source has no persisted vehicle location |
 | 429 | Authentication attempt rate limit reached |
 | 500 | Server/database operation failed |
 | 503 | Health/database dependency unavailable |
