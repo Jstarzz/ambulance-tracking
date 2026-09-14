@@ -141,23 +141,30 @@ class MainActivity : Activity() {
         recenterButton = findViewById(R.id.recenterButton)
         mapView = findViewById(R.id.mapView)
 
+        serverUrl.setText(BuildConfig.EMS_API_BASE_URL)
         configureMap(savedInstanceState)
 
-        val savedConfig = SecureConfig.load(this)
-        hasSavedConfig = savedConfig != null
-        if (savedConfig != null) {
-            applyConfigToUi(savedConfig)
+        val loaded = SecureConfig.load(this)
+        hasSavedConfig = loaded != null
+        if (loaded != null) {
+            // The endpoint belongs to the deployment, not to the ambulance worker. Migrate
+            // older installs away from a manually-entered URL without exposing the credential.
+            val config = loaded.copy(serverUrl = BuildConfig.EMS_API_BASE_URL)
+            if (config.serverUrl != loaded.serverUrl) SecureConfig.save(this, config)
+            applyConfigToUi(config)
             showOperationalSurface()
         } else {
             unitTitle.text = "Ambulance"
+            mapUpdateText.text = "Not registered"
             showSetupSurface(firstRun = true)
         }
 
         configToggleButton.setOnClickListener {
-            if (setupSheet.visibility == View.VISIBLE && hasSavedConfig) {
+            if (!hasSavedConfig) return@setOnClickListener
+            if (setupSheet.visibility == View.VISIBLE) {
                 showOperationalSurface()
             } else {
-                showSetupSurface(firstRun = !hasSavedConfig)
+                showSetupSurface(firstRun = false)
             }
         }
         saveSetupButton.setOnClickListener { saveConfiguration() }
@@ -218,48 +225,54 @@ class MainActivity : Activity() {
         setupSheet.visibility = View.GONE
         operationalSheet.visibility = View.VISIBLE
         recenterButton.visibility = View.VISIBLE
+        configToggleButton.visibility = View.VISIBLE
     }
 
     private fun showSetupSurface(firstRun: Boolean) {
         operationalSheet.visibility = View.GONE
         setupSheet.visibility = View.VISIBLE
         recenterButton.visibility = View.GONE
+        // On first launch the registration sheet is already the settings surface. A gear
+        // that opens the same thing looks broken, so do not show it until registration.
+        configToggleButton.visibility = if (firstRun) View.GONE else View.VISIBLE
         cancelSetupButton.visibility = if (firstRun) View.GONE else View.VISIBLE
+        deviceKey.setText("")
         connectionHint.text = if (firstRun) {
-            "Connect this phone to its ambulance unit."
+            "Enter the ambulance unit and registration code provided by dispatch."
         } else {
-            "Update the secure provisioning details for this tracker."
+            "Registered as ${vehicleCode.text}. Enter a new registration code only when dispatch tells you to move this phone to another unit."
         }
     }
 
     private fun applyConfigToUi(config: TrackerConfig) {
-        serverUrl.setText(config.serverUrl)
+        serverUrl.setText(BuildConfig.EMS_API_BASE_URL)
         vehicleCode.setText(config.vehicleCode)
-        deviceKey.setText(config.deviceKey)
+        deviceKey.setText("")
         unitTitle.text = config.vehicleCode
-        serverStateText.text = "Connected"
+        serverStateText.text = "Registered"
+        mapUpdateText.text = "Waiting for GPS"
     }
 
     private fun saveConfiguration() {
-        val url = serverUrl.text.toString().trim().trimEnd('/')
         val code = vehicleCode.text.toString().trim().uppercase(Locale.US)
-        val key = deviceKey.text.toString()
+        val registrationCode = deviceKey.text.toString().trim()
 
-        if (!url.startsWith("https://")) {
-            Toast.makeText(this, "Server URL must use HTTPS.", Toast.LENGTH_LONG).show()
+        if (code.isBlank()) {
+            Toast.makeText(this, "Enter the ambulance unit shown by dispatch.", Toast.LENGTH_LONG).show()
             return
         }
-        if (code.isBlank() || key.length < 16) {
-            Toast.makeText(this, "Ambulance code and a valid device key are required.", Toast.LENGTH_LONG).show()
+        if (registrationCode.length < 6) {
+            Toast.makeText(this, "Enter the registration code provided by dispatch.", Toast.LENGTH_LONG).show()
             return
         }
 
-        val config = TrackerConfig(url, code, key)
+        val config = TrackerConfig(BuildConfig.EMS_API_BASE_URL, code, registrationCode)
         SecureConfig.save(this, config)
         hasSavedConfig = true
         applyConfigToUi(config)
         showOperationalSurface()
         renderStatus("Stopped")
+        Toast.makeText(this, "$code registered on this phone.", Toast.LENGTH_SHORT).show()
     }
 
     private fun applySystemBarInsets() {
@@ -446,7 +459,10 @@ class MainActivity : Activity() {
             showSetupSurface(firstRun = true)
             return
         }
-        applyConfigToUi(config)
+
+        val deployedConfig = config.copy(serverUrl = BuildConfig.EMS_API_BASE_URL)
+        if (deployedConfig.serverUrl != config.serverUrl) SecureConfig.save(this, deployedConfig)
+        applyConfigToUi(deployedConfig)
 
         if (!hasFineLocation()) {
             pendingStart = true
