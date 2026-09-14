@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,14 @@ type routeResponse struct {
 	GeneratedAt        time.Time      `json:"generated_at"`
 }
 
+// RoutingRoutes is separate from the core mux so deployments can keep the
+// existing app surface stable while the optional routing provider is configured.
+func (a *App) RoutingRoutes() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/vehicles/{vehicleID}/route", a.requireUser(a.vehicleRoute, false))
+	return securityHeaders(requestLog(mux, a.log))
+}
+
 func (a *App) vehicleRoute(w http.ResponseWriter, r *http.Request) {
 	vehicleID := r.PathValue("vehicleID")
 	lat, errLat := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
@@ -46,14 +55,14 @@ func (a *App) vehicleRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, routeErr := a.roadRoute(r.Context(), latest.Latitude, latest.Longitude, lat, lon)
+	result, routeErr := roadRoute(r.Context(), latest.Latitude, latest.Longitude, lat, lon)
 	if routeErr != nil {
-		result = a.fallbackRoute(latest.Latitude, latest.Longitude, lat, lon, latest.SpeedMPS)
+		result = fallbackRoute(latest.Latitude, latest.Longitude, lat, lon, latest.SpeedMPS)
 	}
 	result.VehicleID = vehicleID
 	result.Origin = map[string]any{
-		"latitude":  latest.Latitude,
-		"longitude": latest.Longitude,
+		"latitude":   latest.Latitude,
+		"longitude":  latest.Longitude,
 		"accuracy_m": latest.AccuracyM,
 	}
 	result.Destination = map[string]any{"latitude": lat, "longitude": lon}
@@ -62,11 +71,12 @@ func (a *App) vehicleRoute(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (a *App) roadRoute(ctx context.Context, originLat, originLon, destLat, destLon float64) (routeResponse, error) {
-	if strings.TrimSpace(a.cfg.RouterURL) == "" {
+func roadRoute(ctx context.Context, originLat, originLon, destLat, destLon float64) (routeResponse, error) {
+	routerURL := strings.TrimSpace(os.Getenv("ROUTER_URL"))
+	if routerURL == "" {
 		return routeResponse{}, fmt.Errorf("routing provider not configured")
 	}
-	base := strings.TrimRight(a.cfg.RouterURL, "/")
+	base := strings.TrimRight(routerURL, "/")
 	u := fmt.Sprintf(
 		"%s/route/v1/driving/%.6f,%.6f;%.6f,%.6f?overview=full&geometries=geojson&steps=false&alternatives=false",
 		base,
@@ -117,12 +127,14 @@ func (a *App) roadRoute(ctx context.Context, originLat, originLon, destLat, dest
 	}, nil
 }
 
-func (a *App) fallbackRoute(originLat, originLon, destLat, destLon float64, speedMPS *float32) routeResponse {
+func fallbackRoute(originLat, originLon, destLat, destLon float64, speedMPS *float32) routeResponse {
 	straightLine := haversineMeters(originLat, originLon, destLat, destLon)
 	distanceM := straightLine * 1.25
-	speedKPH := a.cfg.ETAFallbackKPH
-	if speedKPH <= 0 {
-		speedKPH = 35
+	speedKPH := 35.0
+	if raw := strings.TrimSpace(os.Getenv("ETA_FALLBACK_KPH")); raw != "" {
+		if parsed, err := strconv.ParseFloat(raw, 64); err == nil && parsed > 0 {
+			speedKPH = parsed
+		}
 	}
 	if speedMPS != nil {
 		liveKPH := float64(*speedMPS) * 3.6
