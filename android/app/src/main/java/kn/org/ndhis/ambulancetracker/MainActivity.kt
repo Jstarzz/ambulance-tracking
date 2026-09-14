@@ -57,12 +57,10 @@ class MainActivity : Activity() {
         private const val PERMISSION_REQUEST = 100
         private const val MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty"
         private const val MAX_TRAIL_POINTS = 300
-        private const val SHEET_PEEK_DP = 112f
+        private const val SHEET_PEEK_DP = 108f
     }
 
-    private lateinit var serverUrl: EditText
-    private lateinit var vehicleCode: EditText
-    private lateinit var deviceKey: EditText
+    private lateinit var registrationCodeInput: EditText
     private lateinit var unitTitle: TextView
     private lateinit var statusText: TextView
     private lateinit var speedText: TextView
@@ -94,6 +92,7 @@ class MainActivity : Activity() {
 
     private val httpClient = OkHttpClient()
     private var registrationInFlight = false
+    private var registeredVehicleCode = ""
     private var map: MapLibreMap? = null
     private var vehicleMarker: Marker? = null
     private var routeLine: Polyline? = null
@@ -105,6 +104,7 @@ class MainActivity : Activity() {
     private var receiverRegistered = false
     private var hasSavedConfig = false
     private var statusResolved = false
+    private var trackingActive = false
     private var sheetCollapsed = false
     private var sheetDragStartY = 0f
     private var sheetDragStartTranslation = 0f
@@ -122,9 +122,7 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
         applySystemBarInsets()
 
-        serverUrl = findViewById(R.id.serverUrl)
-        vehicleCode = findViewById(R.id.vehicleCode)
-        deviceKey = findViewById(R.id.deviceKey)
+        registrationCodeInput = findViewById(R.id.registrationCodeInput)
         unitTitle = findViewById(R.id.unitTitle)
         statusText = findViewById(R.id.statusText)
         speedText = findViewById(R.id.speedText)
@@ -154,7 +152,6 @@ class MainActivity : Activity() {
         backgroundSettingsButton = findViewById(R.id.backgroundSettingsButton)
         mapView = findViewById(R.id.mapView)
 
-        serverUrl.setText(BuildConfig.EMS_API_BASE_URL)
         configureMap(savedInstanceState)
         configureOperationalSheet()
         configureBackgroundReliability()
@@ -175,19 +172,21 @@ class MainActivity : Activity() {
 
         configToggleButton.setOnClickListener {
             if (!hasSavedConfig) return@setOnClickListener
-            if (settingsSheet.visibility == View.VISIBLE) {
-                showOperationalSurface()
+            if (settingsSheet.visibility == View.VISIBLE) showOperationalSurface() else showSettingsSurface()
+        }
+        openReregisterButton.setOnClickListener {
+            if (trackingActive) {
+                Toast.makeText(this, "Stop tracking before moving this phone to another ambulance.", Toast.LENGTH_LONG).show()
             } else {
-                showSettingsSurface()
+                showSetupSurface(firstRun = false)
             }
         }
-        openReregisterButton.setOnClickListener { showSetupSurface(firstRun = false) }
         closeSettingsButton.setOnClickListener { showOperationalSurface() }
         saveSetupButton.setOnClickListener { registerDevice() }
         cancelSetupButton.setOnClickListener {
             if (hasSavedConfig) showSettingsSurface()
         }
-        deviceKey.setOnEditorActionListener { _, actionId, _ ->
+        registrationCodeInput.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 registerDevice()
                 true
@@ -319,7 +318,7 @@ class MainActivity : Activity() {
 
     private fun updateBackgroundReliability() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            backgroundModeText.text = "Background · unrestricted"
+            backgroundModeText.text = "Unrestricted"
             backgroundModeText.setTextColor(getColor(R.color.app_green))
             backgroundSettingsButton.visibility = View.GONE
             return
@@ -328,11 +327,11 @@ class MainActivity : Activity() {
         val powerManager = getSystemService(PowerManager::class.java)
         val unrestricted = powerManager.isIgnoringBatteryOptimizations(packageName)
         if (unrestricted) {
-            backgroundModeText.text = "Background · unrestricted"
+            backgroundModeText.text = "Unrestricted by Android battery optimization"
             backgroundModeText.setTextColor(getColor(R.color.app_green))
             backgroundSettingsButton.visibility = View.GONE
         } else {
-            backgroundModeText.text = "Background · battery optimized"
+            backgroundModeText.text = "Battery optimization may limit background work"
             backgroundModeText.setTextColor(getColor(R.color.app_amber))
             backgroundSettingsButton.visibility = View.VISIBLE
         }
@@ -353,7 +352,16 @@ class MainActivity : Activity() {
         settingsSheet.visibility = View.VISIBLE
         recenterButton.visibility = View.GONE
         configToggleButton.visibility = View.VISIBLE
-        registeredUnitText.text = vehicleCode.text.toString().ifBlank { "Registered tracker" }
+        registeredUnitText.text = registeredVehicleCode.ifBlank { "Registered tracker" }
+        updateBackgroundReliability()
+        refreshReregisterAction()
+    }
+
+    private fun refreshReregisterAction() {
+        if (!::openReregisterButton.isInitialized) return
+        openReregisterButton.isEnabled = !trackingActive
+        openReregisterButton.alpha = if (trackingActive) 0.55f else 1f
+        openReregisterButton.text = if (trackingActive) "Stop tracking to re-register" else "Re-register tracker"
     }
 
     private fun showSetupSurface(firstRun: Boolean) {
@@ -363,19 +371,18 @@ class MainActivity : Activity() {
         recenterButton.visibility = View.GONE
         configToggleButton.visibility = if (firstRun) View.GONE else View.VISIBLE
         cancelSetupButton.visibility = if (firstRun) View.GONE else View.VISIBLE
-        deviceKey.setText("")
+        registrationCodeInput.setText("")
         connectionHint.text = if (firstRun) {
-            "Enter the 8-character registration code shown by dispatch."
+            "Ask dispatch for a registration code. This phone will be linked to that ambulance automatically."
         } else {
-            "This phone is registered as ${vehicleCode.text}. Enter a new code only when dispatch tells you to re-register it."
+            "This phone is connected to ${registeredVehicleCode.ifBlank { "an ambulance" }}. Enter a new dispatch code only to move it to another unit."
         }
     }
 
     private fun applyConfigToUi(config: TrackerConfig) {
-        serverUrl.setText(BuildConfig.EMS_API_BASE_URL)
-        vehicleCode.setText(config.vehicleCode)
+        registeredVehicleCode = config.vehicleCode
         registeredUnitText.text = config.vehicleCode
-        deviceKey.setText("")
+        registrationCodeInput.setText("")
         unitTitle.text = config.vehicleCode
         serverStateText.text = "Registered"
         if (lastMapPoint == null) mapUpdateText.text = "Waiting for GPS"
@@ -406,6 +413,7 @@ class MainActivity : Activity() {
 
     private fun renderCheckingStatus() {
         statusResolved = false
+        trackingActive = false
         statusText.text = "Checking tracker…"
         statusText.setTextColor(getColor(R.color.app_muted))
         liveDot.visibility = View.INVISIBLE
@@ -413,6 +421,7 @@ class MainActivity : Activity() {
         startButton.isEnabled = false
         startButton.text = "Checking tracker…"
         stopButton.visibility = View.GONE
+        refreshReregisterAction()
     }
 
     private fun requestTrackerStatus() {
@@ -451,7 +460,7 @@ class MainActivity : Activity() {
 
     private fun registerDevice() {
         if (registrationInFlight) return
-        val enrollmentCode = deviceKey.text.toString().trim().uppercase(Locale.US)
+        val enrollmentCode = registrationCodeInput.text.toString().trim().uppercase(Locale.US)
         if (enrollmentCode.length != 8) {
             Toast.makeText(this, "Enter the 8-character registration code from dispatch.", Toast.LENGTH_LONG).show()
             return
@@ -459,7 +468,7 @@ class MainActivity : Activity() {
 
         registrationInFlight = true
         saveSetupButton.isEnabled = false
-        saveSetupButton.text = "Registering…"
+        saveSetupButton.text = "Connecting…"
 
         val deviceName = listOf(Build.MANUFACTURER, Build.MODEL)
             .filter { it.isNotBlank() }
@@ -510,13 +519,13 @@ class MainActivity : Activity() {
                         hasSavedConfig = true
                         registrationInFlight = false
                         saveSetupButton.isEnabled = true
-                        saveSetupButton.text = "Register device"
+                        saveSetupButton.text = "Connect tracker"
                         applyConfigToUi(config)
                         showOperationalSurface()
                         renderStatus("Stopped")
                         Toast.makeText(
                             this@MainActivity,
-                            "$code registered on this phone.",
+                            "$code connected to this phone.",
                             Toast.LENGTH_SHORT,
                         ).show()
                     }
@@ -528,7 +537,7 @@ class MainActivity : Activity() {
     private fun finishRegistrationError(message: String) {
         registrationInFlight = false
         saveSetupButton.isEnabled = true
-        saveSetupButton.text = "Register device"
+        saveSetupButton.text = "Connect tracker"
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
@@ -596,10 +605,12 @@ class MainActivity : Activity() {
         }
 
         val active = live || starting || offline
+        trackingActive = active
         startButton.isEnabled = !active
         startButton.text = "Start tracking"
         startButton.visibility = if (active) View.GONE else View.VISIBLE
         stopButton.visibility = if (active) View.VISIBLE else View.GONE
+        refreshReregisterAction()
     }
 
     private fun updateMap(point: LatLng) {
@@ -620,8 +631,8 @@ class MainActivity : Activity() {
 
     private fun createVehicleIcon(): Icon {
         val density = resources.displayMetrics.density
-        val size = (18f * density).roundToInt().coerceAtLeast(18)
-        val outline = (2f * density).coerceAtLeast(2f)
+        val size = (20f * density).roundToInt().coerceAtLeast(20)
+        val outline = (2.5f * density).coerceAtLeast(2f)
         val radius = size / 2f - outline
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -646,7 +657,7 @@ class MainActivity : Activity() {
                 MarkerOptions()
                     .position(points.last())
                     .icon(createVehicleIcon())
-                    .title(vehicleCode.text.toString().ifBlank { "Ambulance" }),
+                    .title(registeredVehicleCode.ifBlank { "Ambulance" }),
             )
         } else {
             marker.position = points.last()

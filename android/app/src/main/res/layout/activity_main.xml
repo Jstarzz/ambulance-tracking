@@ -10,15 +10,16 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Compact, map-native identity/status surface. -->
     <LinearLayout
         android:id="@+id/unitChip"
         android:layout_width="wrap_content"
-        android:layout_height="54dp"
+        android:layout_height="52dp"
         android:layout_gravity="top|start"
         android:layout_marginStart="12dp"
         android:layout_marginTop="12dp"
         android:background="@drawable/bg_map_chip"
-        android:elevation="8dp"
+        android:elevation="7dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="14dp"
@@ -26,8 +27,8 @@
 
         <View
             android:id="@+id/liveDot"
-            android:layout_width="10dp"
-            android:layout_height="10dp"
+            android:layout_width="9dp"
+            android:layout_height="9dp"
             android:background="@drawable/bg_status_dot_live" />
 
         <LinearLayout
@@ -43,7 +44,7 @@
                 android:fontFamily="sans-serif-medium"
                 android:text="Ambulance"
                 android:textColor="@color/app_text"
-                android:textSize="15sp" />
+                android:textSize="14sp" />
 
             <TextView
                 android:id="@+id/mapUpdateText"
@@ -58,15 +59,15 @@
 
     <Button
         android:id="@+id/configToggleButton"
-        android:layout_width="50dp"
-        android:layout_height="50dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:layout_gravity="top|end"
         android:layout_marginTop="14dp"
         android:layout_marginEnd="12dp"
         android:background="@drawable/bg_map_fab"
         android:contentDescription="Tracker settings"
         android:drawableStart="@drawable/ic_settings"
-        android:elevation="8dp"
+        android:elevation="7dp"
         android:gravity="center"
         android:minWidth="0dp"
         android:padding="13dp"
@@ -75,20 +76,21 @@
 
     <Button
         android:id="@+id/recenterButton"
-        android:layout_width="50dp"
-        android:layout_height="50dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:layout_gravity="end|bottom"
         android:layout_marginEnd="12dp"
-        android:layout_marginBottom="316dp"
+        android:layout_marginBottom="260dp"
         android:background="@drawable/bg_map_fab"
         android:contentDescription="Center map on ambulance"
         android:drawableStart="@drawable/ic_my_location"
-        android:elevation="8dp"
+        android:elevation="7dp"
         android:gravity="center"
         android:minWidth="0dp"
         android:padding="13dp"
         android:text="" />
 
+    <!-- Daily-use surface: state and telemetry only. -->
     <LinearLayout
         android:id="@+id/operationalSheet"
         android:layout_width="match_parent"
@@ -104,7 +106,7 @@
         <FrameLayout
             android:id="@+id/sheetHandle"
             android:layout_width="match_parent"
-            android:layout_height="30dp"
+            android:layout_height="28dp"
             android:clickable="true"
             android:contentDescription="Expand or collapse tracking controls"
             android:focusable="true">
@@ -175,17 +177,29 @@
             android:layout_marginTop="13dp"
             android:orientation="horizontal">
 
-            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif" android:text="Speed" android:textColor="@color/app_muted" android:textSize="10sp" />
                 <TextView android:id="@+id/speedText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:fontFamily="sans-serif-medium" android:text="—" android:textColor="@color/app_text" android:textSize="17sp" />
             </LinearLayout>
 
-            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif" android:text="GPS" android:textColor="@color/app_muted" android:textSize="10sp" />
                 <TextView android:id="@+id/accuracyText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:fontFamily="sans-serif-medium" android:text="—" android:textColor="@color/app_text" android:textSize="17sp" />
             </LinearLayout>
 
-            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif" android:text="Network" android:textColor="@color/app_muted" android:textSize="10sp" />
                 <TextView android:id="@+id/networkText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:fontFamily="sans-serif-medium" android:text="—" android:textColor="@color/app_text" android:textSize="14sp" />
             </LinearLayout>
@@ -199,39 +213,6 @@
             android:orientation="horizontal">
             <TextView android:id="@+id/bufferText" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:fontFamily="sans-serif" android:text="0 pending" android:textColor="@color/app_muted" android:textSize="10sp" />
             <TextView android:id="@+id/serverStateText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif" android:text="Registered" android:textColor="@color/app_muted" android:textSize="10sp" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/backgroundModeText"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:fontFamily="sans-serif"
-                android:text="Background · checking"
-                android:textColor="@color/app_muted"
-                android:textSize="10sp" />
-
-            <Button
-                android:id="@+id/backgroundSettingsButton"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:background="@drawable/bg_button_quiet"
-                android:fontFamily="sans-serif-medium"
-                android:minHeight="0dp"
-                android:minWidth="0dp"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:text="Battery settings"
-                android:textAllCaps="false"
-                android:textColor="@color/app_blue"
-                android:textSize="11sp" />
         </LinearLayout>
 
         <Button
@@ -261,6 +242,7 @@
             android:visibility="gone" />
     </LinearLayout>
 
+    <!-- Settings is deliberately separate from enrollment and day-to-day tracking. -->
     <LinearLayout
         android:id="@+id/settingsSheet"
         android:layout_width="match_parent"
@@ -295,7 +277,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="18dp"
             android:fontFamily="sans-serif"
-            android:text="Registered ambulance"
+            android:text="Connected ambulance"
             android:textColor="@color/app_muted"
             android:textSize="11sp" />
 
@@ -309,12 +291,64 @@
             android:textColor="@color/app_text"
             android:textSize="18sp" />
 
-        <TextView
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="16dp"
+            android:background="@color/app_line" />
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="14dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="Background tracking"
+                    android:textColor="@color/app_text"
+                    android:textSize="14sp" />
+                <TextView
+                    android:id="@+id/backgroundModeText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:fontFamily="sans-serif"
+                    android:text="Checking battery settings…"
+                    android:textColor="@color/app_muted"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/backgroundSettingsButton"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_button_quiet"
+                android:fontFamily="sans-serif-medium"
+                android:minHeight="0dp"
+                android:minWidth="0dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="Open"
+                android:textAllCaps="false"
+                android:textColor="@color/app_blue"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
             android:fontFamily="sans-serif"
-            android:text="This phone keeps its tracker credential securely. Re-register only when dispatch moves this phone to a different ambulance."
+            android:text="Re-register only when dispatch moves this phone to another ambulance."
             android:textColor="@color/app_muted"
             android:textSize="12sp" />
 
@@ -322,7 +356,7 @@
             android:id="@+id/openReregisterButton"
             android:layout_width="match_parent"
             android:layout_height="52dp"
-            android:layout_marginTop="18dp"
+            android:layout_marginTop="14dp"
             android:background="@drawable/bg_button_quiet"
             android:fontFamily="sans-serif-medium"
             android:text="Re-register tracker"
@@ -337,12 +371,13 @@
             android:layout_marginTop="4dp"
             android:background="@android:color/transparent"
             android:fontFamily="sans-serif-medium"
-            android:text="Close"
+            android:text="Done"
             android:textAllCaps="false"
             android:textColor="@color/app_muted"
             android:textSize="14sp" />
     </LinearLayout>
 
+    <!-- First-run/re-registration surface. No endpoint or secret is exposed. -->
     <LinearLayout
         android:id="@+id/setupSheet"
         android:layout_width="match_parent"
@@ -368,7 +403,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:fontFamily="sans-serif-medium"
-            android:text="Register this tracker"
+            android:text="Connect this phone"
             android:textColor="@color/app_text"
             android:textSize="22sp" />
 
@@ -378,45 +413,35 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:fontFamily="sans-serif"
-            android:text="Enter the 8-character registration code shown by dispatch."
+            android:text="Enter the 8-character code shown by dispatch."
             android:textColor="@color/app_muted"
             android:textSize="13sp" />
 
         <EditText
-            android:id="@+id/serverUrl"
-            android:layout_width="1dp"
-            android:layout_height="1dp"
-            android:visibility="gone" />
-
-        <EditText
-            android:id="@+id/vehicleCode"
-            android:layout_width="1dp"
-            android:layout_height="1dp"
-            android:visibility="gone" />
-
-        <EditText
-            android:id="@+id/deviceKey"
+            android:id="@+id/registrationCodeInput"
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:layout_marginTop="18dp"
             android:background="@drawable/bg_input"
             android:fontFamily="sans-serif-medium"
-            android:gravity="center_vertical"
-            android:hint="Registration code"
+            android:gravity="center"
+            android:hint="ABCD1234"
             android:imeOptions="actionDone"
             android:inputType="textCapCharacters|textNoSuggestions"
+            android:letterSpacing="0.12"
             android:maxLength="8"
             android:singleLine="true"
+            android:textAlignment="center"
             android:textColor="@color/app_text"
             android:textColorHint="#80868B"
-            android:textSize="17sp" />
+            android:textSize="18sp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:fontFamily="sans-serif"
-            android:text="The code expires after 10 minutes and can only be used once."
+            android:text="Codes expire after 10 minutes and work once."
             android:textColor="@color/app_muted"
             android:textSize="11sp" />
 
@@ -427,7 +452,7 @@
             android:layout_marginTop="16dp"
             android:background="@drawable/bg_button_primary"
             android:fontFamily="sans-serif-medium"
-            android:text="Register device"
+            android:text="Connect tracker"
             android:textAllCaps="false"
             android:textColor="#FFFFFF"
             android:textSize="15sp" />

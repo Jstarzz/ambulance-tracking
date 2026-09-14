@@ -1,0 +1,366 @@
+/* Final map-product polish. Keep the map visually dominant and make chrome behave
+   like navigation software rather than a dashboard. */
+
+:root {
+  --maps-shadow: 0 1px 2px rgba(60, 64, 67, .20), 0 2px 6px rgba(60, 64, 67, .14);
+  --maps-shadow-raised: 0 2px 6px rgba(60, 64, 67, .20), 0 8px 24px rgba(60, 64, 67, .12);
+}
+
+.fleet-rail {
+  top: 12px;
+  left: 12px;
+  bottom: 12px;
+  width: 258px;
+  border-color: rgba(218, 220, 224, .9);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .985);
+  box-shadow: var(--maps-shadow-raised);
+  backdrop-filter: none;
+}
+
+.fleet-brand {
+  padding: 16px 16px 10px;
+}
+
+.brand-mark {
+  width: 32px;
+  height: 32px;
+}
+
+.brand strong {
+  font-size: 16px;
+  letter-spacing: -.01em;
+}
+
+.rail-search {
+  height: 46px;
+  margin: 0 12px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 23px;
+  background: #fff;
+  box-shadow: var(--maps-shadow);
+}
+
+.rail-search > span {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  font-size: 0;
+  transform: none;
+}
+
+.rail-search > span::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 1px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #5f6368;
+  border-radius: 50%;
+}
+
+.rail-search > span::after {
+  content: '';
+  position: absolute;
+  width: 7px;
+  height: 2px;
+  right: 0;
+  bottom: 2px;
+  border-radius: 2px;
+  background: #5f6368;
+  transform: rotate(45deg);
+  transform-origin: center;
+}
+
+.rail-search input {
+  font-size: 14px;
+}
+
+.rail-summary {
+  gap: 0;
+  margin: 12px 16px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.rail-summary div {
+  padding: 7px 4px;
+  background: transparent;
+}
+
+.rail-summary div + div {
+  border-left: 1px solid #eceff1;
+}
+
+.rail-summary strong {
+  font-size: 14px;
+}
+
+.rail-summary span {
+  font-size: 9px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.rail-section-title {
+  padding: 6px 16px 7px;
+  font-size: 10px;
+  letter-spacing: .06em;
+}
+
+.vehicle-row {
+  min-height: 58px;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 9px 14px;
+}
+
+.vehicle-row.selected {
+  background: #e8f0fe;
+  box-shadow: inset 3px 0 0 #1a73e8;
+}
+
+.unit-badge,
+.marker-symbol {
+  position: relative;
+  font-size: 0 !important;
+  overflow: hidden;
+}
+
+.unit-badge::before,
+.marker-symbol::before {
+  content: '';
+  width: 16px;
+  height: 16px;
+  display: block;
+  background: currentColor;
+  clip-path: polygon(38% 0, 62% 0, 62% 38%, 100% 38%, 100% 62%, 62% 62%, 62% 100%, 38% 100%, 38% 62%, 0 62%, 0 38%, 38% 38%);
+}
+
+.unit-badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: #fff;
+}
+
+.unit-badge.live,
+.vehicle-marker.live .marker-symbol {
+  background: #1e8e3e;
+  color: #fff;
+}
+
+.unit-badge.delayed,
+.unit-badge.stale,
+.vehicle-marker.delayed .marker-symbol,
+.vehicle-marker.stale .marker-symbol {
+  background: #f9ab00;
+  color: #fff;
+}
+
+.vehicle-copy strong {
+  font-size: 13px;
+}
+
+.vehicle-copy small,
+.vehicle-age {
+  font-size: 10px;
+}
+
+.map-top-controls {
+  top: 12px;
+  left: 282px;
+  right: 340px;
+  gap: 8px;
+}
+
+.filter-group {
+  gap: 2px;
+  padding: 4px;
+  border: 0;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: var(--maps-shadow);
+}
+
+.filter-group button {
+  height: 36px;
+  min-width: 62px;
+  padding: 0 13px;
+  border-radius: 18px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.filter-group button.active {
+  background: #e8f0fe;
+  color: #1967d2;
+}
+
+.realtime-pill {
+  height: 44px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: var(--maps-shadow);
+}
+
+.unit-inspector {
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: 304px;
+  padding: 18px;
+  border-color: rgba(218, 220, 224, .9);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--maps-shadow-raised);
+  backdrop-filter: none;
+}
+
+.inspector-head {
+  padding-bottom: 15px;
+}
+
+.inspector-head h2 {
+  font-size: 22px;
+}
+
+.state-pill {
+  min-height: 26px;
+  border-radius: 13px;
+}
+
+.status-card {
+  min-height: 54px;
+  margin-top: 12px;
+  padding: 10px 11px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.metric-grid {
+  gap: 1px;
+  overflow: hidden;
+  margin-top: 12px;
+  border: 1px solid #dadce0;
+  border-radius: 8px;
+  background: #dadce0;
+}
+
+.metric-grid div {
+  padding: 11px;
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+}
+
+.location-card {
+  margin-top: 12px;
+  padding: 11px;
+  border-radius: 8px;
+}
+
+.location-card button,
+.inspector-actions button,
+.history-actions button,
+.history-actions select {
+  border-radius: 8px;
+}
+
+.detail-list {
+  margin-top: 10px;
+}
+
+.detail-list div {
+  padding: 9px 0;
+}
+
+.history-drawer {
+  left: 282px;
+  right: 340px;
+  bottom: 12px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: var(--maps-shadow-raised);
+  backdrop-filter: none;
+}
+
+.vehicle-marker {
+  min-width: 68px;
+  height: 32px;
+  gap: 6px;
+  padding: 0 9px 0 5px;
+  border: 0;
+  border-radius: 7px;
+  background: #fff;
+  box-shadow: var(--maps-shadow);
+  color: #3c4043;
+}
+
+.marker-symbol {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: #fff;
+}
+
+.vehicle-marker.selected {
+  background: #1a73e8;
+  color: #fff;
+  box-shadow: 0 2px 7px rgba(26, 115, 232, .35);
+}
+
+.vehicle-marker.selected .marker-symbol {
+  background: #fff;
+  color: #1a73e8;
+}
+
+.maplibregl-ctrl-bottom-right {
+  right: 330px !important;
+  bottom: 14px !important;
+}
+
+.maplibregl-ctrl-group {
+  border: 0 !important;
+  border-radius: 10px !important;
+  box-shadow: var(--maps-shadow) !important;
+}
+
+.maplibregl-ctrl-group button {
+  width: 40px !important;
+  height: 40px !important;
+}
+
+.route-pick-banner {
+  border-radius: 10px;
+  box-shadow: var(--maps-shadow-raised);
+}
+
+.route-card {
+  border-radius: 8px;
+}
+
+.login-panel {
+  border-radius: 14px;
+  box-shadow: var(--maps-shadow-raised);
+}
+
+@media (max-width: 1180px) {
+  .fleet-rail { width: 232px; }
+  .unit-inspector { width: 278px; }
+  .map-top-controls { left: 256px; right: 314px; }
+  .history-drawer { left: 256px; right: 314px; }
+  .maplibregl-ctrl-bottom-right { right: 302px !important; }
+}
+
+@media (max-width: 940px) {
+  .map-top-controls { right: 12px; }
+  .history-drawer { right: 12px; }
+  .maplibregl-ctrl-bottom-right { right: 12px !important; }
+}
