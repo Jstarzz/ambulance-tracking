@@ -4,6 +4,7 @@ package kn.org.ndhis.ambulancetracker
 
 import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -12,8 +13,11 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
@@ -44,6 +48,7 @@ import org.maplibre.android.maps.MapView
 import java.io.IOException
 import java.util.ArrayDeque
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class MainActivity : Activity() {
@@ -51,6 +56,7 @@ class MainActivity : Activity() {
         private const val PERMISSION_REQUEST = 100
         private const val MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty"
         private const val MAX_TRAIL_POINTS = 300
+        private const val SHEET_PEEK_DP = 112f
     }
 
     private lateinit var serverUrl: EditText
@@ -67,15 +73,18 @@ class MainActivity : Activity() {
     private lateinit var serverStateText: TextView
     private lateinit var mapUpdateText: TextView
     private lateinit var connectionHint: TextView
+    private lateinit var backgroundModeText: TextView
     private lateinit var liveDot: View
     private lateinit var operationalSheet: View
     private lateinit var setupSheet: View
+    private lateinit var sheetHandle: View
     private lateinit var configToggleButton: Button
     private lateinit var saveSetupButton: Button
     private lateinit var cancelSetupButton: Button
     private lateinit var startButton: Button
     private lateinit var stopButton: Button
     private lateinit var recenterButton: Button
+    private lateinit var backgroundSettingsButton: Button
     private lateinit var mapView: MapView
 
     private val httpClient = OkHttpClient()
@@ -90,34 +99,15 @@ class MainActivity : Activity() {
     private var pendingStart = false
     private var receiverRegistered = false
     private var hasSavedConfig = false
+    private var statusResolved = false
+    private var sheetCollapsed = false
+    private var sheetDragStartY = 0f
+    private var sheetDragStartTranslation = 0f
 
     private val telemetryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != TrackingService.ACTION_TELEMETRY) return
-
-            val status = intent.getStringExtra(TrackingService.EXTRA_STATUS) ?: "Unknown"
-            renderStatus(status)
-            networkText.text = intent.getStringExtra(TrackingService.EXTRA_NETWORK) ?: "—"
-            bufferText.text = "${intent.getLongExtra(TrackingService.EXTRA_BUFFERED, 0L)} pending"
-
-            if (intent.hasExtra(TrackingService.EXTRA_SPEED_MPS)) {
-                val speed = intent.getFloatExtra(TrackingService.EXTRA_SPEED_MPS, 0f) * 3.6f
-                speedText.text = String.format(Locale.US, "%.0f km/h", speed)
-            }
-            if (intent.hasExtra(TrackingService.EXTRA_ACCURACY_M)) {
-                val accuracy = intent.getFloatExtra(TrackingService.EXTRA_ACCURACY_M, 0f)
-                accuracyText.text = String.format(Locale.US, "±%.0f m", accuracy)
-            }
-            if (intent.hasExtra(TrackingService.EXTRA_LATITUDE) && intent.hasExtra(TrackingService.EXTRA_LONGITUDE)) {
-                val latitude = intent.getDoubleExtra(TrackingService.EXTRA_LATITUDE, 0.0)
-                val longitude = intent.getDoubleExtra(TrackingService.EXTRA_LONGITUDE, 0.0)
-                coordsText.text = "Location acquired"
-                mapUpdateText.text = if (followLocation) "Following ambulance" else "Browsing map"
-                updateMap(LatLng(latitude, longitude))
-            }
-            if (intent.hasExtra(TrackingService.EXTRA_BATTERY)) {
-                batteryText.text = "${intent.getIntExtra(TrackingService.EXTRA_BATTERY, 0)}%"
-            }
+            applyTelemetryIntent(intent)
         }
     }
 
@@ -141,19 +131,24 @@ class MainActivity : Activity() {
         serverStateText = findViewById(R.id.serverStateText)
         mapUpdateText = findViewById(R.id.mapUpdateText)
         connectionHint = findViewById(R.id.connectionHint)
+        backgroundModeText = findViewById(R.id.backgroundModeText)
         liveDot = findViewById(R.id.liveDot)
         operationalSheet = findViewById(R.id.operationalSheet)
         setupSheet = findViewById(R.id.setupSheet)
+        sheetHandle = findViewById(R.id.sheetHandle)
         configToggleButton = findViewById(R.id.configToggleButton)
         saveSetupButton = findViewById(R.id.saveSetupButton)
         cancelSetupButton = findViewById(R.id.cancelSetupButton)
         startButton = findViewById(R.id.startButton)
         stopButton = findViewById(R.id.stopButton)
         recenterButton = findViewById(R.id.recenterButton)
+        backgroundSettingsButton = findViewById(R.id.backgroundSettingsButton)
         mapView = findViewById(R.id.mapView)
 
         serverUrl.setText(BuildConfig.EMS_API_BASE_URL)
         configureMap(savedInstanceState)
+        configureOperationalSheet()
+        configureBackgroundReliability()
 
         val loaded = SecureConfig.load(this)
         hasSavedConfig = loaded != null
@@ -162,6 +157,7 @@ class MainActivity : Activity() {
             if (config.serverUrl != loaded.serverUrl) SecureConfig.save(this, config)
             applyConfigToUi(config)
             showOperationalSurface()
+            restoreTrackerState()
         } else {
             unitTitle.text = "Ambulance"
             mapUpdateText.text = "Not registered"
@@ -175,14 +171,17 @@ class MainActivity : Activity() {
         saveSetupButton.setOnClickListener { registerDevice() }
         cancelSetupButton.setOnClickListener { if (hasSavedConfig) showOperationalSurface() }
         startButton.setOnClickListener {
-            if (!hasSavedConfig) showSetupSurface(firstRun = true) else prepareStart()
+            if (!hasSavedConfig) {
+                showSetupSurface(firstRun = true)
+            } else if (statusResolved) {
+                prepareStart()
+            }
         }
         stopButton.setOnClickListener {
+            TrackerStateStore.markStopped(this)
             startService(Intent(this, TrackingService::class.java).setAction(TrackingService.ACTION_STOP))
             renderStatus("Stopped")
         }
-
-        renderStatus("Stopped")
     }
 
     private fun configureMap(savedInstanceState: Bundle?) {
@@ -226,11 +225,100 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun configureOperationalSheet() {
+        sheetHandle.setOnClickListener { settleSheet(!sheetCollapsed) }
+        sheetHandle.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    sheetDragStartY = event.rawY
+                    sheetDragStartTranslation = operationalSheet.translationY
+                    view.parent?.requestDisallowInterceptTouchEvent(true)
+                    true
+                }
+
+                MotionEvent.ACTION_MOVE -> {
+                    val next = (sheetDragStartTranslation + event.rawY - sheetDragStartY)
+                        .coerceIn(0f, maxSheetTranslation())
+                    setSheetTranslation(next)
+                    true
+                }
+
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    view.parent?.requestDisallowInterceptTouchEvent(false)
+                    val moved = abs(event.rawY - sheetDragStartY)
+                    if (moved < dp(8f)) {
+                        view.performClick()
+                    } else {
+                        settleSheet(operationalSheet.translationY > maxSheetTranslation() * 0.42f)
+                    }
+                    true
+                }
+
+                else -> false
+            }
+        }
+    }
+
+    private fun maxSheetTranslation(): Float =
+        (operationalSheet.height - dp(SHEET_PEEK_DP)).coerceAtLeast(0f)
+
+    private fun setSheetTranslation(value: Float) {
+        operationalSheet.translationY = value
+        recenterButton.translationY = value
+    }
+
+    private fun settleSheet(collapsed: Boolean) {
+        sheetCollapsed = collapsed
+        val target = if (collapsed) maxSheetTranslation() else 0f
+        operationalSheet.animate().translationY(target).setDuration(180).start()
+        recenterButton.animate().translationY(target).setDuration(180).start()
+    }
+
+    private fun dp(value: Float): Float = value * resources.displayMetrics.density
+
+    private fun configureBackgroundReliability() {
+        backgroundSettingsButton.setOnClickListener {
+            try {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            } catch (_: ActivityNotFoundException) {
+                startActivity(
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:$packageName"),
+                    ),
+                )
+            }
+        }
+        updateBackgroundReliability()
+    }
+
+    private fun updateBackgroundReliability() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            backgroundModeText.text = "Background · unrestricted"
+            backgroundModeText.setTextColor(getColor(R.color.app_green))
+            backgroundSettingsButton.visibility = View.GONE
+            return
+        }
+
+        val powerManager = getSystemService(PowerManager::class.java)
+        val unrestricted = powerManager.isIgnoringBatteryOptimizations(packageName)
+        if (unrestricted) {
+            backgroundModeText.text = "Background · unrestricted"
+            backgroundModeText.setTextColor(getColor(R.color.app_green))
+            backgroundSettingsButton.visibility = View.GONE
+        } else {
+            backgroundModeText.text = "Background · battery optimized"
+            backgroundModeText.setTextColor(getColor(R.color.app_amber))
+            backgroundSettingsButton.visibility = View.VISIBLE
+        }
+    }
+
     private fun showOperationalSurface() {
         setupSheet.visibility = View.GONE
         operationalSheet.visibility = View.VISIBLE
         recenterButton.visibility = View.VISIBLE
         configToggleButton.visibility = View.VISIBLE
+        operationalSheet.post { setSheetTranslation(if (sheetCollapsed) maxSheetTranslation() else 0f) }
     }
 
     private fun showSetupSurface(firstRun: Boolean) {
@@ -253,7 +341,75 @@ class MainActivity : Activity() {
         deviceKey.setText("")
         unitTitle.text = config.vehicleCode
         serverStateText.text = "Registered"
-        mapUpdateText.text = "Waiting for GPS"
+        if (lastMapPoint == null) mapUpdateText.text = "Waiting for GPS"
+    }
+
+    private fun restoreTrackerState() {
+        val snapshot = TrackerStateStore.load(this)
+        if (snapshot == null) {
+            renderCheckingStatus()
+            return
+        }
+        renderSnapshot(snapshot)
+    }
+
+    private fun renderSnapshot(snapshot: TrackerUiSnapshot) {
+        statusResolved = true
+        renderStatus(snapshot.status)
+        networkText.text = snapshot.network
+        bufferText.text = "${snapshot.buffered} pending"
+        snapshot.battery?.let { batteryText.text = "$it%" }
+        snapshot.speedMps?.let { speedText.text = String.format(Locale.US, "%.0f km/h", it * 3.6f) }
+        snapshot.accuracyM?.let { accuracyText.text = String.format(Locale.US, "±%.0f m", it) }
+        if (snapshot.latitude != null && snapshot.longitude != null) {
+            coordsText.text = "Location acquired"
+            updateMap(LatLng(snapshot.latitude, snapshot.longitude))
+        }
+    }
+
+    private fun renderCheckingStatus() {
+        statusResolved = false
+        statusText.text = "Checking tracker…"
+        statusText.setTextColor(getColor(R.color.app_muted))
+        liveDot.visibility = View.INVISIBLE
+        startButton.visibility = View.VISIBLE
+        startButton.isEnabled = false
+        startButton.text = "Checking tracker…"
+        stopButton.visibility = View.GONE
+    }
+
+    private fun requestTrackerStatus() {
+        if (!hasSavedConfig) return
+        runCatching {
+            startService(Intent(this, TrackingService::class.java).setAction(TrackingService.ACTION_STATUS))
+        }
+    }
+
+    private fun applyTelemetryIntent(intent: Intent) {
+        val status = intent.getStringExtra(TrackingService.EXTRA_STATUS) ?: "Unknown"
+        statusResolved = true
+        renderStatus(status)
+        networkText.text = intent.getStringExtra(TrackingService.EXTRA_NETWORK) ?: "—"
+        bufferText.text = "${intent.getLongExtra(TrackingService.EXTRA_BUFFERED, 0L)} pending"
+
+        if (intent.hasExtra(TrackingService.EXTRA_SPEED_MPS)) {
+            val speed = intent.getFloatExtra(TrackingService.EXTRA_SPEED_MPS, 0f) * 3.6f
+            speedText.text = String.format(Locale.US, "%.0f km/h", speed)
+        }
+        if (intent.hasExtra(TrackingService.EXTRA_ACCURACY_M)) {
+            val accuracy = intent.getFloatExtra(TrackingService.EXTRA_ACCURACY_M, 0f)
+            accuracyText.text = String.format(Locale.US, "±%.0f m", accuracy)
+        }
+        if (intent.hasExtra(TrackingService.EXTRA_LATITUDE) && intent.hasExtra(TrackingService.EXTRA_LONGITUDE)) {
+            val latitude = intent.getDoubleExtra(TrackingService.EXTRA_LATITUDE, 0.0)
+            val longitude = intent.getDoubleExtra(TrackingService.EXTRA_LONGITUDE, 0.0)
+            coordsText.text = "Location acquired"
+            mapUpdateText.text = if (followLocation) "Following ambulance" else "Browsing map"
+            updateMap(LatLng(latitude, longitude))
+        }
+        if (intent.hasExtra(TrackingService.EXTRA_BATTERY)) {
+            batteryText.text = "${intent.getIntExtra(TrackingService.EXTRA_BATTERY, 0)}%"
+        }
     }
 
     private fun registerDevice() {
@@ -309,6 +465,7 @@ class MainActivity : Activity() {
                     runOnUiThread {
                         val config = TrackerConfig(BuildConfig.EMS_API_BASE_URL, code, key)
                         SecureConfig.save(this@MainActivity, config)
+                        TrackerStateStore.markStopped(this@MainActivity)
                         hasSavedConfig = true
                         registrationInFlight = false
                         saveSetupButton.isEnabled = true
@@ -355,6 +512,7 @@ class MainActivity : Activity() {
     }
 
     private fun renderStatus(status: String) {
+        statusResolved = true
         val normalized = status.lowercase(Locale.US)
         val live = normalized == "live" || normalized == "tracking"
         val starting = normalized == "starting" || normalized == "acquiring gps"
@@ -391,6 +549,8 @@ class MainActivity : Activity() {
         }
 
         val active = live || starting || offline
+        startButton.isEnabled = !active
+        startButton.text = "Start tracking"
         startButton.visibility = if (active) View.GONE else View.VISIBLE
         stopButton.visibility = if (active) View.VISIBLE else View.GONE
     }
@@ -471,11 +631,13 @@ class MainActivity : Activity() {
             registerReceiver(telemetryReceiver, filter)
         }
         receiverRegistered = true
+        requestTrackerStatus()
     }
 
     override fun onResume() {
         super.onResume()
         mapView.onResume()
+        updateBackgroundReliability()
     }
 
     override fun onPause() {
