@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 type Vehicle = {
   vehicle_id: string;
@@ -21,6 +22,25 @@ export default function EnrollmentControl() {
   const [enrollment, setEnrollment] = useState<EnrollmentResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (portalHost) return;
+    const existing = document.getElementById('map-top-controls');
+    if (existing) {
+      setPortalHost(existing);
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      const el = document.getElementById('map-top-controls');
+      if (el) {
+        setPortalHost(el);
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [portalHost]);
 
   useEffect(() => {
     let stopped = false;
@@ -90,9 +110,12 @@ export default function EnrollmentControl() {
 
   return (
     <>
-      <button className="tracker-enroll-launch" type="button" onClick={() => setOpen(true)}>
-        Register tracker
-      </button>
+      {portalHost && createPortal(
+        <button className="tracker-enroll-launch" type="button" onClick={() => setOpen(true)}>
+          Register tracker
+        </button>,
+        portalHost
+      )}
 
       {open && (
         <div className="tracker-enroll-backdrop" role="presentation" onMouseDown={(event) => {
@@ -114,7 +137,7 @@ export default function EnrollmentControl() {
                   <select value={vehicleId} onChange={(event) => setVehicleId(event.target.value)}>
                     {vehicles.map((vehicle) => (
                       <option key={vehicle.vehicle_id} value={vehicle.vehicle_id}>
-                        {vehicle.vehicle_code}{vehicle.label ? ` · ${vehicle.label}` : ''}
+                        {vehicle.vehicle_code}{vehicle.label && vehicle.label !== vehicle.vehicle_code ? ` · ${vehicle.label}` : ''}
                       </option>
                     ))}
                   </select>

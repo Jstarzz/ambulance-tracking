@@ -1,7 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import './styles.css';
 import './refinements.css';
 import './enrollment.css';
 import App from './App';
