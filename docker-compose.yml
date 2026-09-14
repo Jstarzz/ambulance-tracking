@@ -26,6 +26,11 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
+    environment:
+      # Give prototype/field deployments real road-following routes out of the box.
+      # Set ROUTER_URL explicitly to a self-hosted OSRM-compatible service for production.
+      ROUTER_URL: ${ROUTER_URL:-https://router.project-osrm.org}
+      ETA_FALLBACK_KPH: ${ETA_FALLBACK_KPH:-35}
     depends_on:
       db:
         condition: service_healthy

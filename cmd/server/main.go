@@ -50,6 +50,11 @@ func isRoutingRequest(r *http.Request) bool {
 		strings.HasSuffix(r.URL.Path, "/route")
 }
 
+func isFleetUtilityRequest(r *http.Request) bool {
+	return (r.Method == http.MethodPost && r.URL.Path == "/api/v1/vehicles") ||
+		(r.Method == http.MethodGet && r.URL.Path == "/api/v1/device/fleet")
+}
+
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ctx := context.Background()
@@ -81,6 +86,7 @@ func main() {
 	coreRoutes := a.Routes()
 	enrollmentRoutes := a.EnrollmentRoutes()
 	routingRoutes := a.RoutingRoutes()
+	fleetRoutes := a.FleetRoutes()
 	rootHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isEnrollmentRequest(r) {
 			enrollmentRoutes.ServeHTTP(w, r)
@@ -88,6 +94,10 @@ func main() {
 		}
 		if isRoutingRequest(r) {
 			routingRoutes.ServeHTTP(w, r)
+			return
+		}
+		if isFleetUtilityRequest(r) {
+			fleetRoutes.ServeHTTP(w, r)
 			return
 		}
 		coreRoutes.ServeHTTP(w, r)
