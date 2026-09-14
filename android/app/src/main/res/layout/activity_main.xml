@@ -79,7 +79,7 @@
         android:layout_height="50dp"
         android:layout_gravity="end|bottom"
         android:layout_marginEnd="12dp"
-        android:layout_marginBottom="246dp"
+        android:layout_marginBottom="12dp"
         android:background="@drawable/bg_map_fab"
         android:contentDescription="Center map on ambulance"
         android:drawableStart="@drawable/ic_my_location"
@@ -145,7 +145,7 @@
                 android:id="@+id/batteryText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="@color/app_panel_2"
+                android:background="@drawable/bg_chip_neutral"
                 android:fontFamily="sans-serif-medium"
                 android:paddingStart="10dp"
                 android:paddingTop="6dp"
@@ -180,7 +180,7 @@
 
             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif" android:text="Network" android:textColor="@color/app_muted" android:textSize="10sp" />
-                <TextView android:id="@+id/networkText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:fontFamily="sans-serif-medium" android:text="—" android:textColor="@color/app_text" android:textSize="14sp" />
+                <TextView android:id="@+id/networkText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:fontFamily="sans-serif-medium" android:text="—" android:textColor="@color/app_text" android:textSize="17sp" />
             </LinearLayout>
         </LinearLayout>
 
@@ -258,19 +258,6 @@
             android:text="Enter the 8-character registration code shown by dispatch."
             android:textColor="@color/app_muted"
             android:textSize="13sp" />
-
-        <!-- Deployment and vehicle identity are resolved by the enrollment code. -->
-        <EditText
-            android:id="@+id/serverUrl"
-            android:layout_width="1dp"
-            android:layout_height="1dp"
-            android:visibility="gone" />
-
-        <EditText
-            android:id="@+id/vehicleCode"
-            android:layout_width="1dp"
-            android:layout_height="1dp"
-            android:visibility="gone" />
 
         <EditText
             android:id="@+id/deviceKey"

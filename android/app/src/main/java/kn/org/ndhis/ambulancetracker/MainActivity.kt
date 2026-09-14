@@ -19,6 +19,7 @@ import android.view.View
 import android.view.WindowInsets
 import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.TextView
 import android.widget.Toast
 import okhttp3.Call
@@ -53,8 +54,7 @@ class MainActivity : Activity() {
         private const val MAX_TRAIL_POINTS = 300
     }
 
-    private lateinit var serverUrl: EditText
-    private lateinit var vehicleCode: EditText
+    private var vehicleCode = ""
     private lateinit var deviceKey: EditText
     private lateinit var unitTitle: TextView
     private lateinit var statusText: TextView
@@ -127,8 +127,6 @@ class MainActivity : Activity() {
         setContentView(R.layout.activity_main)
         applySystemBarInsets()
 
-        serverUrl = findViewById(R.id.serverUrl)
-        vehicleCode = findViewById(R.id.vehicleCode)
         deviceKey = findViewById(R.id.deviceKey)
         unitTitle = findViewById(R.id.unitTitle)
         statusText = findViewById(R.id.statusText)
@@ -152,7 +150,6 @@ class MainActivity : Activity() {
         recenterButton = findViewById(R.id.recenterButton)
         mapView = findViewById(R.id.mapView)
 
-        serverUrl.setText(BuildConfig.EMS_API_BASE_URL)
         configureMap(savedInstanceState)
 
         val loaded = SecureConfig.load(this)
@@ -180,6 +177,10 @@ class MainActivity : Activity() {
         stopButton.setOnClickListener {
             startService(Intent(this, TrackingService::class.java).setAction(TrackingService.ACTION_STOP))
             renderStatus("Stopped")
+        }
+
+        operationalSheet.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop) positionRecenterButton()
         }
 
         renderStatus("Stopped")
@@ -243,13 +244,12 @@ class MainActivity : Activity() {
         connectionHint.text = if (firstRun) {
             "Enter the 8-character registration code shown by dispatch."
         } else {
-            "This phone is registered as ${vehicleCode.text}. Enter a new code only when dispatch tells you to re-register it."
+            "This phone is registered as $vehicleCode. Enter a new code only when dispatch tells you to re-register it."
         }
     }
 
     private fun applyConfigToUi(config: TrackerConfig) {
-        serverUrl.setText(BuildConfig.EMS_API_BASE_URL)
-        vehicleCode.setText(config.vehicleCode)
+        vehicleCode = config.vehicleCode
         deviceKey.setText("")
         unitTitle.text = config.vehicleCode
         serverStateText.text = "Registered"
@@ -328,6 +328,17 @@ class MainActivity : Activity() {
         saveSetupButton.isEnabled = true
         saveSetupButton.text = "Register device"
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    private fun positionRecenterButton() {
+        val gap = (12 * resources.displayMetrics.density).roundToInt()
+        val sheetHeight = if (operationalSheet.visibility == View.VISIBLE) operationalSheet.height else 0
+        val params = recenterButton.layoutParams as FrameLayout.LayoutParams
+        val margin = sheetHeight + gap
+        if (params.bottomMargin != margin) {
+            params.bottomMargin = margin
+            recenterButton.layoutParams = params
+        }
     }
 
     private fun applySystemBarInsets() {
@@ -439,7 +450,7 @@ class MainActivity : Activity() {
                 MarkerOptions()
                     .position(points.last())
                     .icon(createVehicleIcon())
-                    .title(vehicleCode.text.toString().ifBlank { "Ambulance" }),
+                    .title(vehicleCode.ifBlank { "Ambulance" }),
             )
         } else {
             marker.position = points.last()
