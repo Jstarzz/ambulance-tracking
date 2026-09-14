@@ -21,6 +21,7 @@ import android.provider.Settings
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -74,11 +75,15 @@ class MainActivity : Activity() {
     private lateinit var mapUpdateText: TextView
     private lateinit var connectionHint: TextView
     private lateinit var backgroundModeText: TextView
+    private lateinit var registeredUnitText: TextView
     private lateinit var liveDot: View
     private lateinit var operationalSheet: View
+    private lateinit var settingsSheet: View
     private lateinit var setupSheet: View
     private lateinit var sheetHandle: View
     private lateinit var configToggleButton: Button
+    private lateinit var openReregisterButton: Button
+    private lateinit var closeSettingsButton: Button
     private lateinit var saveSetupButton: Button
     private lateinit var cancelSetupButton: Button
     private lateinit var startButton: Button
@@ -132,11 +137,15 @@ class MainActivity : Activity() {
         mapUpdateText = findViewById(R.id.mapUpdateText)
         connectionHint = findViewById(R.id.connectionHint)
         backgroundModeText = findViewById(R.id.backgroundModeText)
+        registeredUnitText = findViewById(R.id.registeredUnitText)
         liveDot = findViewById(R.id.liveDot)
         operationalSheet = findViewById(R.id.operationalSheet)
+        settingsSheet = findViewById(R.id.settingsSheet)
         setupSheet = findViewById(R.id.setupSheet)
         sheetHandle = findViewById(R.id.sheetHandle)
         configToggleButton = findViewById(R.id.configToggleButton)
+        openReregisterButton = findViewById(R.id.openReregisterButton)
+        closeSettingsButton = findViewById(R.id.closeSettingsButton)
         saveSetupButton = findViewById(R.id.saveSetupButton)
         cancelSetupButton = findViewById(R.id.cancelSetupButton)
         startButton = findViewById(R.id.startButton)
@@ -166,10 +175,26 @@ class MainActivity : Activity() {
 
         configToggleButton.setOnClickListener {
             if (!hasSavedConfig) return@setOnClickListener
-            if (setupSheet.visibility == View.VISIBLE) showOperationalSurface() else showSetupSurface(firstRun = false)
+            if (settingsSheet.visibility == View.VISIBLE) {
+                showOperationalSurface()
+            } else {
+                showSettingsSurface()
+            }
         }
+        openReregisterButton.setOnClickListener { showSetupSurface(firstRun = false) }
+        closeSettingsButton.setOnClickListener { showOperationalSurface() }
         saveSetupButton.setOnClickListener { registerDevice() }
-        cancelSetupButton.setOnClickListener { if (hasSavedConfig) showOperationalSurface() }
+        cancelSetupButton.setOnClickListener {
+            if (hasSavedConfig) showSettingsSurface()
+        }
+        deviceKey.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                registerDevice()
+                true
+            } else {
+                false
+            }
+        }
         startButton.setOnClickListener {
             if (!hasSavedConfig) {
                 showSetupSurface(firstRun = true)
@@ -315,14 +340,25 @@ class MainActivity : Activity() {
 
     private fun showOperationalSurface() {
         setupSheet.visibility = View.GONE
+        settingsSheet.visibility = View.GONE
         operationalSheet.visibility = View.VISIBLE
         recenterButton.visibility = View.VISIBLE
         configToggleButton.visibility = View.VISIBLE
         operationalSheet.post { setSheetTranslation(if (sheetCollapsed) maxSheetTranslation() else 0f) }
     }
 
+    private fun showSettingsSurface() {
+        setupSheet.visibility = View.GONE
+        operationalSheet.visibility = View.GONE
+        settingsSheet.visibility = View.VISIBLE
+        recenterButton.visibility = View.GONE
+        configToggleButton.visibility = View.VISIBLE
+        registeredUnitText.text = vehicleCode.text.toString().ifBlank { "Registered tracker" }
+    }
+
     private fun showSetupSurface(firstRun: Boolean) {
         operationalSheet.visibility = View.GONE
+        settingsSheet.visibility = View.GONE
         setupSheet.visibility = View.VISIBLE
         recenterButton.visibility = View.GONE
         configToggleButton.visibility = if (firstRun) View.GONE else View.VISIBLE
@@ -338,6 +374,7 @@ class MainActivity : Activity() {
     private fun applyConfigToUi(config: TrackerConfig) {
         serverUrl.setText(BuildConfig.EMS_API_BASE_URL)
         vehicleCode.setText(config.vehicleCode)
+        registeredUnitText.text = config.vehicleCode
         deviceKey.setText("")
         unitTitle.text = config.vehicleCode
         serverStateText.text = "Registered"
@@ -440,7 +477,9 @@ class MainActivity : Activity() {
 
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { finishRegistrationError("Could not reach dispatch. Check the phone's connection and try again.") }
+                runOnUiThread {
+                    finishRegistrationError("Could not reach dispatch. Check the phone's connection and try again.")
+                }
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -458,7 +497,9 @@ class MainActivity : Activity() {
                     val code = json?.optString("vehicle_code").orEmpty()
                     val key = json?.optString("device_key").orEmpty()
                     if (code.isBlank() || key.isBlank()) {
-                        runOnUiThread { finishRegistrationError("Dispatch returned an invalid registration response.") }
+                        runOnUiThread {
+                            finishRegistrationError("Dispatch returned an invalid registration response.")
+                        }
                         return
                     }
 
@@ -473,7 +514,11 @@ class MainActivity : Activity() {
                         applyConfigToUi(config)
                         showOperationalSurface()
                         renderStatus("Stopped")
-                        Toast.makeText(this@MainActivity, "$code registered on this phone.", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            this@MainActivity,
+                            "$code registered on this phone.",
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 }
             }
@@ -517,7 +562,9 @@ class MainActivity : Activity() {
         val live = normalized == "live" || normalized == "tracking"
         val starting = normalized == "starting" || normalized == "acquiring gps"
         val offline = normalized.contains("offline") || normalized.contains("buffer")
-        val unavailable = normalized.contains("missing") || normalized.contains("unavailable") || normalized == "unknown"
+        val unavailable = normalized.contains("missing") ||
+            normalized.contains("unavailable") ||
+            normalized == "unknown"
 
         when {
             live -> {
