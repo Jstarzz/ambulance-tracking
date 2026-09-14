@@ -19,6 +19,18 @@ CREATE TABLE IF NOT EXISTS devices (
     last_seen_at timestamptz
 );
 
+CREATE TABLE IF NOT EXISTS device_enrollment_codes (
+    id uuid PRIMARY KEY,
+    vehicle_id uuid NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+    code_hash bytea NOT NULL UNIQUE,
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    used_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS device_enrollment_codes_active_idx
+    ON device_enrollment_codes(vehicle_id, expires_at)
+    WHERE used_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS device_sessions (
     id uuid PRIMARY KEY,
     device_id uuid NOT NULL REFERENCES devices(id) ON DELETE CASCADE,

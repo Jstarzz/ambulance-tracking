@@ -21,6 +21,14 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import org.json.JSONObject
 import org.maplibre.android.MapLibre
 import org.maplibre.android.annotations.Icon
 import org.maplibre.android.annotations.IconFactory
@@ -33,6 +41,7 @@ import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
+import java.io.IOException
 import java.util.ArrayDeque
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -69,6 +78,8 @@ class MainActivity : Activity() {
     private lateinit var recenterButton: Button
     private lateinit var mapView: MapView
 
+    private val httpClient = OkHttpClient()
+    private var registrationInFlight = false
     private var map: MapLibreMap? = null
     private var vehicleMarker: Marker? = null
     private var routeLine: Polyline? = null
@@ -141,26 +152,27 @@ class MainActivity : Activity() {
         recenterButton = findViewById(R.id.recenterButton)
         mapView = findViewById(R.id.mapView)
 
+        serverUrl.setText(BuildConfig.EMS_API_BASE_URL)
         configureMap(savedInstanceState)
 
-        val savedConfig = SecureConfig.load(this)
-        hasSavedConfig = savedConfig != null
-        if (savedConfig != null) {
-            applyConfigToUi(savedConfig)
+        val loaded = SecureConfig.load(this)
+        hasSavedConfig = loaded != null
+        if (loaded != null) {
+            val config = loaded.copy(serverUrl = BuildConfig.EMS_API_BASE_URL)
+            if (config.serverUrl != loaded.serverUrl) SecureConfig.save(this, config)
+            applyConfigToUi(config)
             showOperationalSurface()
         } else {
             unitTitle.text = "Ambulance"
+            mapUpdateText.text = "Not registered"
             showSetupSurface(firstRun = true)
         }
 
         configToggleButton.setOnClickListener {
-            if (setupSheet.visibility == View.VISIBLE && hasSavedConfig) {
-                showOperationalSurface()
-            } else {
-                showSetupSurface(firstRun = !hasSavedConfig)
-            }
+            if (!hasSavedConfig) return@setOnClickListener
+            if (setupSheet.visibility == View.VISIBLE) showOperationalSurface() else showSetupSurface(firstRun = false)
         }
-        saveSetupButton.setOnClickListener { saveConfiguration() }
+        saveSetupButton.setOnClickListener { registerDevice() }
         cancelSetupButton.setOnClickListener { if (hasSavedConfig) showOperationalSurface() }
         startButton.setOnClickListener {
             if (!hasSavedConfig) showSetupSurface(firstRun = true) else prepareStart()
@@ -218,48 +230,104 @@ class MainActivity : Activity() {
         setupSheet.visibility = View.GONE
         operationalSheet.visibility = View.VISIBLE
         recenterButton.visibility = View.VISIBLE
+        configToggleButton.visibility = View.VISIBLE
     }
 
     private fun showSetupSurface(firstRun: Boolean) {
         operationalSheet.visibility = View.GONE
         setupSheet.visibility = View.VISIBLE
         recenterButton.visibility = View.GONE
+        configToggleButton.visibility = if (firstRun) View.GONE else View.VISIBLE
         cancelSetupButton.visibility = if (firstRun) View.GONE else View.VISIBLE
+        deviceKey.setText("")
         connectionHint.text = if (firstRun) {
-            "Connect this phone to its ambulance unit."
+            "Enter the 8-character registration code shown by dispatch."
         } else {
-            "Update the secure provisioning details for this tracker."
+            "This phone is registered as ${vehicleCode.text}. Enter a new code only when dispatch tells you to re-register it."
         }
     }
 
     private fun applyConfigToUi(config: TrackerConfig) {
-        serverUrl.setText(config.serverUrl)
+        serverUrl.setText(BuildConfig.EMS_API_BASE_URL)
         vehicleCode.setText(config.vehicleCode)
-        deviceKey.setText(config.deviceKey)
+        deviceKey.setText("")
         unitTitle.text = config.vehicleCode
-        serverStateText.text = "Connected"
+        serverStateText.text = "Registered"
+        mapUpdateText.text = "Waiting for GPS"
     }
 
-    private fun saveConfiguration() {
-        val url = serverUrl.text.toString().trim().trimEnd('/')
-        val code = vehicleCode.text.toString().trim().uppercase(Locale.US)
-        val key = deviceKey.text.toString()
-
-        if (!url.startsWith("https://")) {
-            Toast.makeText(this, "Server URL must use HTTPS.", Toast.LENGTH_LONG).show()
-            return
-        }
-        if (code.isBlank() || key.length < 16) {
-            Toast.makeText(this, "Ambulance code and a valid device key are required.", Toast.LENGTH_LONG).show()
+    private fun registerDevice() {
+        if (registrationInFlight) return
+        val enrollmentCode = deviceKey.text.toString().trim().uppercase(Locale.US)
+        if (enrollmentCode.length != 8) {
+            Toast.makeText(this, "Enter the 8-character registration code from dispatch.", Toast.LENGTH_LONG).show()
             return
         }
 
-        val config = TrackerConfig(url, code, key)
-        SecureConfig.save(this, config)
-        hasSavedConfig = true
-        applyConfigToUi(config)
-        showOperationalSurface()
-        renderStatus("Stopped")
+        registrationInFlight = true
+        saveSetupButton.isEnabled = false
+        saveSetupButton.text = "Registering…"
+
+        val deviceName = listOf(Build.MANUFACTURER, Build.MODEL)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .ifBlank { "Android tracker" }
+        val payload = JSONObject()
+            .put("code", enrollmentCode)
+            .put("device_name", deviceName)
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+        val request = Request.Builder()
+            .url("${BuildConfig.EMS_API_BASE_URL}/api/v1/device/enroll")
+            .post(payload)
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { finishRegistrationError("Could not reach dispatch. Check the phone's connection and try again.") }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    val body = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        val message = runCatching { JSONObject(body).optString("error") }.getOrNull()
+                            ?.takeIf { it.isNotBlank() }
+                            ?: "Registration code was not accepted."
+                        runOnUiThread { finishRegistrationError(message) }
+                        return
+                    }
+
+                    val json = runCatching { JSONObject(body) }.getOrNull()
+                    val code = json?.optString("vehicle_code").orEmpty()
+                    val key = json?.optString("device_key").orEmpty()
+                    if (code.isBlank() || key.isBlank()) {
+                        runOnUiThread { finishRegistrationError("Dispatch returned an invalid registration response.") }
+                        return
+                    }
+
+                    runOnUiThread {
+                        val config = TrackerConfig(BuildConfig.EMS_API_BASE_URL, code, key)
+                        SecureConfig.save(this@MainActivity, config)
+                        hasSavedConfig = true
+                        registrationInFlight = false
+                        saveSetupButton.isEnabled = true
+                        saveSetupButton.text = "Register device"
+                        applyConfigToUi(config)
+                        showOperationalSurface()
+                        renderStatus("Stopped")
+                        Toast.makeText(this@MainActivity, "$code registered on this phone.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        })
+    }
+
+    private fun finishRegistrationError(message: String) {
+        registrationInFlight = false
+        saveSetupButton.isEnabled = true
+        saveSetupButton.text = "Register device"
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     private fun applySystemBarInsets() {
@@ -425,6 +493,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
+        httpClient.dispatcher.cancelAll()
         mapView.onDestroy()
         super.onDestroy()
     }
@@ -446,7 +515,10 @@ class MainActivity : Activity() {
             showSetupSurface(firstRun = true)
             return
         }
-        applyConfigToUi(config)
+
+        val deployedConfig = config.copy(serverUrl = BuildConfig.EMS_API_BASE_URL)
+        if (deployedConfig.serverUrl != config.serverUrl) SecureConfig.save(this, deployedConfig)
+        applyConfigToUi(deployedConfig)
 
         if (!hasFineLocation()) {
             pendingStart = true

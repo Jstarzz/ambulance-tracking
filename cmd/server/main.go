@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -31,6 +32,16 @@ func envBool(name string, fallback bool) bool {
 		return fallback
 	}
 	return b
+}
+
+func isEnrollmentRequest(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	if r.URL.Path == "/api/v1/device/enroll" {
+		return true
+	}
+	return strings.HasPrefix(r.URL.Path, "/api/v1/vehicles/") && strings.HasSuffix(r.URL.Path, "/enrollment")
 }
 
 func main() {
@@ -60,9 +71,20 @@ func main() {
 		UserSessionTTL:   8 * time.Hour,
 		DeviceSessionTTL: 15 * time.Minute,
 	}, log)
+
+	coreRoutes := a.Routes()
+	enrollmentRoutes := a.EnrollmentRoutes()
+	rootHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isEnrollmentRequest(r) {
+			enrollmentRoutes.ServeHTTP(w, r)
+			return
+		}
+		coreRoutes.ServeHTTP(w, r)
+	})
+
 	srv := &http.Server{
 		Addr:              env("HTTP_ADDR", ":8080"),
-		Handler:           a.Routes(),
+		Handler:           rootHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    32 << 10,
