@@ -20,8 +20,6 @@ import android.os.HandlerThread
 import android.os.IBinder
 import android.os.Looper
 import android.os.SystemClock
-import org.json.JSONArray
-import org.json.JSONObject
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -31,6 +29,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.IOException
 import java.time.Instant
 import java.util.UUID
@@ -43,6 +43,7 @@ class TrackingService : Service(), LocationListener {
     companion object {
         const val ACTION_START = "kn.org.ndhis.ambulancetracker.START"
         const val ACTION_STOP = "kn.org.ndhis.ambulancetracker.STOP"
+        const val ACTION_STATUS = "kn.org.ndhis.ambulancetracker.STATUS"
         const val ACTION_TELEMETRY = "kn.org.ndhis.ambulancetracker.TELEMETRY"
 
         const val EXTRA_STATUS = "status"
@@ -88,6 +89,8 @@ class TrackingService : Service(), LocationListener {
     private var reconnectDelayMs = 1_000L
     private var reconnectScheduled = false
     private var started = false
+    private var userRequestedStop = false
+    private var lastStatus = "Starting"
 
     @Volatile private var config: TrackerConfig? = null
     @Volatile private var accessToken: String? = null
@@ -104,11 +107,28 @@ class TrackingService : Service(), LocationListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                userRequestedStop = true
+                started = false
+                publishTelemetry("Stopped", lastAcceptedLocation, notify = false)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return START_NOT_STICKY
+            }
+
+            ACTION_STATUS -> {
+                if (started) {
+                    publishTelemetry(lastStatus, lastAcceptedLocation)
+                } else {
+                    publishTelemetry("Stopped", lastAcceptedLocation, notify = false)
+                    stopSelf(startId)
+                }
+                return if (started) START_STICKY else START_NOT_STICKY
+            }
         }
 
+        userRequestedStop = false
         startForeground(NOTIFICATION_ID, buildNotification("Starting tracking"))
         if (!started) {
             val loaded = SecureConfig.load(applicationContext)
@@ -122,6 +142,8 @@ class TrackingService : Service(), LocationListener {
             startLocationUpdates()
             authenticateAndConnect()
             publishTelemetry("Acquiring GPS")
+        } else {
+            publishTelemetry(lastStatus, lastAcceptedLocation)
         }
         return START_STICKY
     }
@@ -155,7 +177,6 @@ class TrackingService : Service(), LocationListener {
         val distanceM = previous.distanceTo(candidate)
         val impliedSpeedMps = distanceM / elapsedSeconds
 
-        // Drop one-off teleports that cannot plausibly be an ambulance movement.
         if (impliedSpeedMps > MAX_PLAUSIBLE_SPEED_MPS &&
             (!candidate.hasSpeed() || candidate.speed < MAX_PLAUSIBLE_SPEED_MPS * 0.75f)
         ) {
@@ -172,10 +193,6 @@ class TrackingService : Service(), LocationListener {
         val looksStationary = reportedSpeed < STATIONARY_SPEED_MPS && distanceM <= stationaryRadius
 
         if (!looksStationary) return Location(candidate)
-
-        // While stationary, don't turn GNSS uncertainty into a scribbled route.
-        // Keep a stable coordinate and only emit a low-rate heartbeat so the
-        // backend still receives fresh telemetry without a fake path.
         if (nowElapsed - lastAcceptedElapsedMs < STATIONARY_HEARTBEAT_MS) return null
 
         return Location(candidate).apply {
@@ -199,11 +216,8 @@ class TrackingService : Service(), LocationListener {
             val networkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
 
             if (gpsEnabled) {
-                // Prefer GNSS for a vehicle tracker. Mixing NETWORK_PROVIDER fixes
-                // with GPS while outdoors is a common source of visible jumps.
                 locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1_000L, 0f, this, looper)
             } else if (networkEnabled) {
-                // Network location is a fallback only when GPS itself is unavailable.
                 locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 3_000L, 0f, this, looper)
             } else {
                 publishTelemetry("Location provider unavailable")
@@ -394,22 +408,41 @@ class TrackingService : Service(), LocationListener {
         return ((level * 100f) / scale).toInt().coerceIn(0, 100)
     }
 
-    private fun publishTelemetry(status: String, location: Location? = null) {
+    private fun publishTelemetry(status: String, location: Location? = null, notify: Boolean = true) {
+        lastStatus = status
+        val network = networkType()
+        val buffered = runCatching { pendingStore.count() }.getOrDefault(0L)
+        val battery = batteryPercent()
+        val snapshotLocation = location ?: lastAcceptedLocation
+
+        TrackerStateStore.save(
+            applicationContext,
+            status = status,
+            active = started,
+            network = network,
+            buffered = buffered,
+            battery = battery,
+            location = snapshotLocation,
+        )
+
         val intent = Intent(ACTION_TELEMETRY)
             .setPackage(packageName)
             .putExtra(EXTRA_STATUS, status)
-            .putExtra(EXTRA_NETWORK, networkType())
-            .putExtra(EXTRA_BUFFERED, runCatching { pendingStore.count() }.getOrDefault(0L))
-        batteryPercent()?.let { intent.putExtra(EXTRA_BATTERY, it) }
-        if (location != null) {
-            if (location.hasSpeed()) intent.putExtra(EXTRA_SPEED_MPS, location.speed)
-            if (location.hasAccuracy()) intent.putExtra(EXTRA_ACCURACY_M, location.accuracy)
-            intent.putExtra(EXTRA_LATITUDE, location.latitude)
-            intent.putExtra(EXTRA_LONGITUDE, location.longitude)
+            .putExtra(EXTRA_NETWORK, network)
+            .putExtra(EXTRA_BUFFERED, buffered)
+        battery?.let { intent.putExtra(EXTRA_BATTERY, it) }
+        if (snapshotLocation != null) {
+            if (snapshotLocation.hasSpeed()) intent.putExtra(EXTRA_SPEED_MPS, snapshotLocation.speed)
+            if (snapshotLocation.hasAccuracy()) intent.putExtra(EXTRA_ACCURACY_M, snapshotLocation.accuracy)
+            intent.putExtra(EXTRA_LATITUDE, snapshotLocation.latitude)
+            intent.putExtra(EXTRA_LONGITUDE, snapshotLocation.longitude)
         }
         sendBroadcast(intent)
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildNotification(status))
+
+        if (notify && started) {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.notify(NOTIFICATION_ID, buildNotification(status))
+        }
     }
 
     private fun createNotificationChannel() {
@@ -445,6 +478,7 @@ class TrackingService : Service(), LocationListener {
     }
 
     override fun onDestroy() {
+        val wasRunning = started
         started = false
         mainHandler.removeCallbacksAndMessages(null)
         runCatching { locationManager.removeUpdates(this) }
@@ -455,6 +489,9 @@ class TrackingService : Service(), LocationListener {
         locationThread.quitSafely()
         ioExecutor.shutdown()
         pendingStore.close()
+        if (userRequestedStop || !wasRunning) {
+            TrackerStateStore.markStopped(applicationContext)
+        }
         super.onDestroy()
     }
 }
