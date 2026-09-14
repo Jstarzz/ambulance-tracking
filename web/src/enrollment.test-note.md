@@ -1,0 +1,1 @@
+Enrollment UI is exercised through the dispatcher web build/typecheck and the backend enrollment flow. Real-device Android registration should be visually checked on the S23 after the CI APK is produced.
