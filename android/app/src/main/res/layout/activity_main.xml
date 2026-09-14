@@ -50,7 +50,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:fontFamily="sans-serif"
-                android:text="Waiting for GPS"
+                android:text="Not registered"
                 android:textColor="@color/app_muted"
                 android:textSize="11sp" />
         </LinearLayout>
@@ -70,7 +70,8 @@
         android:gravity="center"
         android:minWidth="0dp"
         android:padding="13dp"
-        android:text="" />
+        android:text=""
+        android:visibility="gone" />
 
     <Button
         android:id="@+id/recenterButton"
@@ -202,7 +203,7 @@
             android:gravity="center_vertical"
             android:orientation="horizontal">
             <TextView android:id="@+id/bufferText" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:fontFamily="sans-serif" android:text="0 pending" android:textColor="@color/app_muted" android:textSize="10sp" />
-            <TextView android:id="@+id/serverStateText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif" android:text="Not configured" android:textColor="@color/app_muted" android:textSize="10sp" />
+            <TextView android:id="@+id/serverStateText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif" android:text="Registered" android:textColor="@color/app_muted" android:textSize="10sp" />
         </LinearLayout>
 
         <Button
@@ -256,7 +257,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:fontFamily="sans-serif-medium"
-            android:text="Set up tracker"
+            android:text="Register this tracker"
             android:textColor="@color/app_text"
             android:textSize="22sp" />
 
@@ -266,32 +267,25 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:fontFamily="sans-serif"
-            android:text="Connect this phone to its ambulance unit."
+            android:text="Enter the ambulance unit and registration code provided by dispatch."
             android:textColor="@color/app_muted"
             android:textSize="13sp" />
 
+        <!-- Endpoint is deployment configuration, never end-user configuration. -->
         <EditText
             android:id="@+id/serverUrl"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:layout_marginTop="18dp"
-            android:background="@drawable/bg_input"
-            android:fontFamily="sans-serif"
-            android:hint="Server URL"
-            android:inputType="textUri"
-            android:singleLine="true"
-            android:textColor="@color/app_text"
-            android:textColorHint="#80868B"
-            android:textSize="14sp" />
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:visibility="gone" />
 
         <EditText
             android:id="@+id/vehicleCode"
             android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:layout_marginTop="10dp"
+            android:layout_height="54dp"
+            android:layout_marginTop="18dp"
             android:background="@drawable/bg_input"
             android:fontFamily="sans-serif"
-            android:hint="Ambulance code"
+            android:hint="Ambulance unit · e.g. AMB-04"
             android:inputType="textCapCharacters"
             android:singleLine="true"
             android:textColor="@color/app_text"
@@ -301,16 +295,25 @@
         <EditText
             android:id="@+id/deviceKey"
             android:layout_width="match_parent"
-            android:layout_height="52dp"
+            android:layout_height="54dp"
             android:layout_marginTop="10dp"
             android:background="@drawable/bg_input"
             android:fontFamily="sans-serif"
-            android:hint="Device key"
-            android:inputType="textPassword"
+            android:hint="Registration code"
+            android:inputType="textCapCharacters"
             android:singleLine="true"
             android:textColor="@color/app_text"
             android:textColorHint="#80868B"
             android:textSize="14sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:fontFamily="sans-serif"
+            android:text="The server address and device credential are handled automatically."
+            android:textColor="@color/app_muted"
+            android:textSize="11sp" />
 
         <Button
             android:id="@+id/saveSetupButton"
@@ -319,7 +322,7 @@
             android:layout_marginTop="16dp"
             android:background="@drawable/bg_button_primary"
             android:fontFamily="sans-serif-medium"
-            android:text="Save tracker"
+            android:text="Register device"
             android:textAllCaps="false"
             android:textColor="#FFFFFF"
             android:textSize="15sp" />
@@ -328,7 +331,7 @@
             android:id="@+id/cancelSetupButton"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="4dp"
             android:background="@android:color/transparent"
             android:fontFamily="sans-serif-medium"
             android:text="Cancel"
