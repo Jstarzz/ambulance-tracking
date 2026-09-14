@@ -104,6 +104,7 @@ class MainActivity : Activity() {
     private var receiverRegistered = false
     private var hasSavedConfig = false
     private var statusResolved = false
+    private var trackingActive = false
     private var sheetCollapsed = false
     private var sheetDragStartY = 0f
     private var sheetDragStartTranslation = 0f
@@ -173,7 +174,13 @@ class MainActivity : Activity() {
             if (!hasSavedConfig) return@setOnClickListener
             if (settingsSheet.visibility == View.VISIBLE) showOperationalSurface() else showSettingsSurface()
         }
-        openReregisterButton.setOnClickListener { showSetupSurface(firstRun = false) }
+        openReregisterButton.setOnClickListener {
+            if (trackingActive) {
+                Toast.makeText(this, "Stop tracking before moving this phone to another ambulance.", Toast.LENGTH_LONG).show()
+            } else {
+                showSetupSurface(firstRun = false)
+            }
+        }
         closeSettingsButton.setOnClickListener { showOperationalSurface() }
         saveSetupButton.setOnClickListener { registerDevice() }
         cancelSetupButton.setOnClickListener {
@@ -347,6 +354,14 @@ class MainActivity : Activity() {
         configToggleButton.visibility = View.VISIBLE
         registeredUnitText.text = registeredVehicleCode.ifBlank { "Registered tracker" }
         updateBackgroundReliability()
+        refreshReregisterAction()
+    }
+
+    private fun refreshReregisterAction() {
+        if (!::openReregisterButton.isInitialized) return
+        openReregisterButton.isEnabled = !trackingActive
+        openReregisterButton.alpha = if (trackingActive) 0.55f else 1f
+        openReregisterButton.text = if (trackingActive) "Stop tracking to re-register" else "Re-register tracker"
     }
 
     private fun showSetupSurface(firstRun: Boolean) {
@@ -398,6 +413,7 @@ class MainActivity : Activity() {
 
     private fun renderCheckingStatus() {
         statusResolved = false
+        trackingActive = false
         statusText.text = "Checking tracker…"
         statusText.setTextColor(getColor(R.color.app_muted))
         liveDot.visibility = View.INVISIBLE
@@ -405,6 +421,7 @@ class MainActivity : Activity() {
         startButton.isEnabled = false
         startButton.text = "Checking tracker…"
         stopButton.visibility = View.GONE
+        refreshReregisterAction()
     }
 
     private fun requestTrackerStatus() {
@@ -588,10 +605,12 @@ class MainActivity : Activity() {
         }
 
         val active = live || starting || offline
+        trackingActive = active
         startButton.isEnabled = !active
         startButton.text = "Start tracking"
         startButton.visibility = if (active) View.GONE else View.VISIBLE
         stopButton.visibility = if (active) View.VISIBLE else View.GONE
+        refreshReregisterAction()
     }
 
     private fun updateMap(point: LatLng) {
