@@ -40,7 +40,7 @@ import kotlin.math.roundToInt
 class MainActivity : Activity() {
     companion object {
         private const val PERMISSION_REQUEST = 100
-        private const val MAP_STYLE = "https://tiles.openfreemap.org/styles/dark"
+        private const val MAP_STYLE = "https://tiles.openfreemap.org/styles/liberty"
         private const val MAX_TRAIL_POINTS = 300
     }
 
@@ -295,7 +295,7 @@ class MainActivity : Activity() {
 
         when {
             live -> {
-                statusText.text = "Tracking live"
+                statusText.text = "Tracking active"
                 statusText.setTextColor(getColor(R.color.app_green))
                 liveDot.visibility = View.VISIBLE
                 mapUpdateText.text = if (lastMapPoint == null) "Waiting for GPS" else mapUpdateText.text
@@ -352,7 +352,7 @@ class MainActivity : Activity() {
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-        paint.color = getColor(R.color.app_bg)
+        paint.color = getColor(R.color.app_panel)
         canvas.drawCircle(size / 2f, size / 2f, radius + outline, paint)
         paint.color = getColor(R.color.app_blue)
         canvas.drawCircle(size / 2f, size / 2f, radius, paint)

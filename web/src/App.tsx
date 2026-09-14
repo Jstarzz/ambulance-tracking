@@ -28,16 +28,16 @@ type Vehicle = {
 
 type FleetResponse = { vehicles: Vehicle[]; server_time: string };
 type HistoryResponse = { vehicle_id: string; from: string; to: string; locations: LocationSample[] };
-
 type LiveMessage = {
   type: string;
   location?: LocationSample;
   vehicle_id?: string;
   connected?: boolean;
 };
-
 type Freshness = 'LIVE' | 'DELAYED' | 'STALE' | 'OFFLINE' | 'NO DATA';
+type FleetFilter = 'ALL' | 'LIVE' | 'OFFLINE';
 
+const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 const EMPTY_GEOJSON = { type: 'FeatureCollection' as const, features: [] };
 
 function freshnessFromTime(recordedAt?: string): Freshness {
@@ -90,17 +90,20 @@ function formatPlaybackTime(sample?: LocationSample): string {
   }).format(new Date(sample.recorded_at));
 }
 
+function statusClass(value: Freshness): string {
+  return value.toLowerCase().replace(' ', '-');
+}
+
 function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`brand ${compact ? 'compact' : ''}`} aria-label="EMS Tracker">
-      <svg className="brand-mark" viewBox="0 0 28 28" aria-hidden="true">
-        <path d="M14 3.5c-4.2 0-7.6 3.3-7.6 7.5 0 5.5 7.6 13.5 7.6 13.5S21.6 16.5 21.6 11c0-4.2-3.4-7.5-7.6-7.5Z" fill="currentColor" />
-        <circle cx="14" cy="11" r="3.1" fill="#08111f" />
-        <path d="M4 21.5c2.4-1.2 4.5-1.2 6.3 0 2.1 1.4 4.3 1.4 6.5 0 2-1.3 4.4-1.3 7.2.1" fill="none" stroke="#f04444" strokeWidth="2" strokeLinecap="round" />
+      <svg className="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M13 2h6v8l6-5 4 5-7 6 7 6-4 5-6-5v8h-6v-8l-6 5-4-5 7-6-7-6 4-5 6 5V2Z" fill="currentColor" />
+        <path d="M16 8v16M12.8 11.5 19.2 20.5M19.2 11.5 12.8 20.5" fill="none" stroke="white" strokeWidth="1.35" strokeLinecap="round" />
       </svg>
       <div>
         <strong>EMS Tracker</strong>
-        {!compact && <span>Saint Kitts &amp; Nevis</span>}
+        {!compact && <span>St. Kitts &amp; Nevis</span>}
       </div>
     </div>
   );
@@ -111,18 +114,19 @@ function MapView({
   selectedVehicleId,
   history,
   playbackIndex,
+  focusRequest,
   onSelect
 }: {
   vehicles: Vehicle[];
   selectedVehicleId: string | null;
   history: LocationSample[];
   playbackIndex: number;
+  focusRequest: number;
   onSelect: (vehicleId: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef(new Map<string, Marker>());
-  const previousSelectionRef = useRef<string | null>(null);
   const [styleReady, setStyleReady] = useState(false);
 
   useEffect(() => {
@@ -131,11 +135,13 @@ function MapView({
     const map = new maplibregl.Map({
       container: containerRef.current,
       center: [-62.76, 17.29],
-      zoom: 10.2,
-      style: 'https://tiles.openfreemap.org/styles/dark'
+      zoom: 10.15,
+      style: MAP_STYLE,
+      attributionControl: false
     });
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-    map.addControl(new maplibregl.AttributionControl({ compact: true }));
+
+    map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'bottom-right');
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
     map.on('load', () => {
       map.addSource('history-route', { type: 'geojson', data: EMPTY_GEOJSON });
       map.addSource('history-progress', { type: 'geojson', data: EMPTY_GEOJSON });
@@ -144,13 +150,13 @@ function MapView({
         id: 'history-route',
         type: 'line',
         source: 'history-route',
-        paint: { 'line-color': '#526174', 'line-width': 3, 'line-opacity': 0.7 }
+        paint: { 'line-color': '#5f6368', 'line-width': 4, 'line-opacity': 0.38 }
       });
       map.addLayer({
         id: 'history-progress',
         type: 'line',
         source: 'history-progress',
-        paint: { 'line-color': '#24c7b6', 'line-width': 4, 'line-opacity': 0.95 }
+        paint: { 'line-color': '#1a73e8', 'line-width': 5, 'line-opacity': 0.95 }
       });
       map.addLayer({
         id: 'playback-point',
@@ -158,8 +164,8 @@ function MapView({
         source: 'playback-point',
         paint: {
           'circle-radius': 7,
-          'circle-color': '#24c7b6',
-          'circle-stroke-color': '#08111f',
+          'circle-color': '#1a73e8',
+          'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 3
         }
       });
@@ -183,18 +189,20 @@ function MapView({
     for (const vehicle of vehicles) {
       if (!vehicle.location) continue;
       active.add(vehicle.vehicle_id);
-      const state = freshness(vehicle).toLowerCase().replace(' ', '-');
+      const state = statusClass(freshness(vehicle));
       let marker = markersRef.current.get(vehicle.vehicle_id);
+
       if (!marker) {
         const element = document.createElement('button');
         element.type = 'button';
         element.className = 'vehicle-marker';
         element.setAttribute('aria-label', `Select ${vehicle.vehicle_code}`);
-        const dot = document.createElement('span');
-        dot.className = 'marker-dot';
+        const symbol = document.createElement('span');
+        symbol.className = 'marker-symbol';
+        symbol.textContent = '+';
         const label = document.createElement('span');
         label.className = 'marker-label';
-        element.append(dot, label);
+        element.append(symbol, label);
         element.addEventListener('click', () => onSelect(vehicle.vehicle_id));
         marker = new maplibregl.Marker({ element, anchor: 'center' })
           .setLngLat([vehicle.location.longitude, vehicle.location.latitude])
@@ -203,6 +211,7 @@ function MapView({
       } else {
         marker.setLngLat([vehicle.location.longitude, vehicle.location.latitude]);
       }
+
       const element = marker.getElement();
       element.className = `vehicle-marker ${state}${selectedVehicleId === vehicle.vehicle_id ? ' selected' : ''}`;
       const label = element.querySelector('.marker-label');
@@ -231,43 +240,27 @@ function MapView({
     const point = map.getSource('playback-point') as GeoJSONSource | undefined;
 
     route?.setData(coordinates.length > 1 ? {
-      type: 'Feature',
-      properties: {},
-      geometry: { type: 'LineString', coordinates }
+      type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates }
     } : EMPTY_GEOJSON);
     progress?.setData(progressCoordinates.length > 1 ? {
-      type: 'Feature',
-      properties: {},
-      geometry: { type: 'LineString', coordinates: progressCoordinates }
+      type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: progressCoordinates }
     } : EMPTY_GEOJSON);
     point?.setData(selectedSample ? {
-      type: 'Feature',
-      properties: {},
-      geometry: { type: 'Point', coordinates: [selectedSample.longitude, selectedSample.latitude] }
+      type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [selectedSample.longitude, selectedSample.latitude] }
     } : EMPTY_GEOJSON);
   }, [history, playbackIndex, styleReady]);
 
   useEffect(() => {
-    if (!styleReady || history.length < 2) return;
-    const map = mapRef.current;
-    if (!map) return;
-    const bounds = new maplibregl.LngLatBounds();
-    history.forEach((sample) => bounds.extend([sample.longitude, sample.latitude]));
-    map.fitBounds(bounds, { padding: 70, duration: 500, maxZoom: 15 });
-  }, [history, styleReady]);
-
-  useEffect(() => {
-    if (previousSelectionRef.current === selectedVehicleId) return;
-    previousSelectionRef.current = selectedVehicleId;
     if (!selectedVehicleId) return;
     const selected = vehicles.find((vehicle) => vehicle.vehicle_id === selectedVehicleId);
     if (!selected?.location) return;
     mapRef.current?.easeTo({
       center: [selected.location.longitude, selected.location.latitude],
-      zoom: Math.max(mapRef.current.getZoom(), 12),
-      duration: 450
+      zoom: Math.max(mapRef.current.getZoom(), 12.3),
+      duration: 420,
+      padding: { left: 290, right: 350, top: 80, bottom: 120 }
     });
-  }, [selectedVehicleId, vehicles]);
+  }, [selectedVehicleId, vehicles, focusRequest]);
 
   return <div className="map" ref={containerRef} aria-label="Live ambulance map" />;
 }
@@ -309,7 +302,7 @@ function Login({ onAuthenticated }: { onAuthenticated: () => void }) {
         <BrandMark />
         <div className="login-copy">
           <h1>Dispatcher sign in</h1>
-          <p>Live vehicle telemetry and route playback.</p>
+          <p>Live ambulance locations and route history.</p>
         </div>
         <label>
           Username
@@ -337,6 +330,10 @@ export default function App() {
   const [historyError, setHistoryError] = useState('');
   const [playbackIndex, setPlaybackIndex] = useState(-1);
   const [playing, setPlaying] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [fleetFilter, setFleetFilter] = useState<FleetFilter>('ALL');
+  const [focusRequest, setFocusRequest] = useState(0);
   const [, setClock] = useState(0);
 
   async function loadFleet() {
@@ -349,30 +346,23 @@ export default function App() {
       }
       if (!response.ok) throw new Error('fleet request failed');
       const body = (await response.json()) as FleetResponse;
-      const hydrated = body.vehicles.map((vehicle) => ({
+      setVehicles(body.vehicles.map((vehicle) => ({
         ...vehicle,
         connected: freshnessFromTime(vehicle.location?.recorded_at) === 'LIVE'
-      }));
-      setVehicles(hydrated);
+      })));
       setAuthenticated(true);
     } catch {
       setAuthenticated(false);
     }
   }
 
-  useEffect(() => {
-    void loadFleet();
-  }, []);
-
+  useEffect(() => { void loadFleet(); }, []);
   useEffect(() => {
     const timer = window.setInterval(() => setClock((value) => value + 1), 1000);
     return () => window.clearInterval(timer);
   }, []);
-
   useEffect(() => {
-    if (!selectedVehicleId && vehicles.length > 0) {
-      setSelectedVehicleId(vehicles[0].vehicle_id);
-    }
+    if (!selectedVehicleId && vehicles.length > 0) setSelectedVehicleId(vehicles[0].vehicle_id);
   }, [selectedVehicleId, vehicles]);
 
   useEffect(() => {
@@ -386,10 +376,7 @@ export default function App() {
       if (stopped) return;
       const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
       socket = new WebSocket(`${scheme}://${window.location.host}/api/v1/dispatch/ws`);
-      socket.onopen = () => {
-        retryMs = 1000;
-        setSocketUp(true);
-      };
+      socket.onopen = () => { retryMs = 1000; setSocketUp(true); };
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data) as LiveMessage;
@@ -405,7 +392,7 @@ export default function App() {
             vehicle.vehicle_id === sample.vehicle_id ? { ...vehicle, connected: true, location: sample } : vehicle
           ));
         } catch {
-          // Ignore malformed frames; transport failures are handled by reconnect logic.
+          // Transport failures are handled by reconnect logic.
         }
       };
       socket.onclose = () => {
@@ -440,8 +427,7 @@ export default function App() {
     setPlaying(false);
 
     fetch(`/api/v1/vehicles/${encodeURIComponent(selectedVehicleId)}/history?hours=${historyHours}`, {
-      credentials: 'same-origin',
-      signal: controller.signal
+      credentials: 'same-origin', signal: controller.signal
     })
       .then(async (response) => {
         if (!response.ok) throw new Error('History unavailable');
@@ -457,9 +443,7 @@ export default function App() {
         setPlaybackIndex(-1);
         setHistoryError(error instanceof Error ? error.message : 'History unavailable');
       })
-      .finally(() => {
-        if (!controller.signal.aborted) setHistoryLoading(false);
-      });
+      .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false); });
 
     return () => controller.abort();
   }, [authenticated, selectedVehicleId, historyHours]);
@@ -489,183 +473,182 @@ export default function App() {
   const liveCount = vehicles.filter((vehicle) => freshness(vehicle) === 'LIVE').length;
   const offlineCount = vehicles.filter((vehicle) => ['OFFLINE', 'NO DATA'].includes(freshness(vehicle))).length;
 
+  const filteredVehicles = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return sortedVehicles.filter((vehicle) => {
+      const state = freshness(vehicle);
+      const matchesFilter = fleetFilter === 'ALL'
+        || (fleetFilter === 'LIVE' && state === 'LIVE')
+        || (fleetFilter === 'OFFLINE' && ['OFFLINE', 'NO DATA', 'STALE'].includes(state));
+      const matchesQuery = !normalized
+        || vehicle.vehicle_code.toLowerCase().includes(normalized)
+        || vehicle.label.toLowerCase().includes(normalized);
+      return matchesFilter && matchesQuery;
+    });
+  }, [sortedVehicles, fleetFilter, query]);
+
   async function logout() {
     const csrf = sessionStorage.getItem('csrf_token') ?? '';
     await fetch('/api/v1/auth/logout', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'X-CSRF-Token': csrf }
+      method: 'POST', credentials: 'same-origin', headers: { 'X-CSRF-Token': csrf }
     }).catch(() => undefined);
     sessionStorage.removeItem('csrf_token');
     setAuthenticated(false);
     setVehicles([]);
   }
 
-  if (authenticated === null) {
-    return <div className="boot">Connecting…</div>;
-  }
-  if (!authenticated) {
-    return <Login onAuthenticated={() => void loadFleet()} />;
-  }
+  if (authenticated === null) return <div className="boot">Connecting…</div>;
+  if (!authenticated) return <Login onAuthenticated={() => void loadFleet()} />;
 
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <BrandMark compact />
-        <div className="fleet-summary" aria-label="Fleet summary">
-          <span><strong>{vehicles.length}</strong> units</span>
-          <span><strong>{liveCount}</strong> live</span>
-          <span><strong>{offlineCount}</strong> offline</span>
-        </div>
-        <div className="topbar-actions">
-          <span className={socketUp ? 'connection live' : 'connection'}>
-            <i />{socketUp ? 'Realtime connected' : 'Reconnecting'}
-          </span>
-          <button className="quiet-button" onClick={() => void logout()}>Sign out</button>
-        </div>
-      </header>
+    <main className="dispatcher-shell">
+      <section className="dispatcher-map" aria-label="Dispatcher live map">
+        <MapView
+          vehicles={filteredVehicles}
+          selectedVehicleId={selectedVehicleId}
+          history={historyOpen ? history : []}
+          playbackIndex={historyOpen ? playbackIndex : -1}
+          focusRequest={focusRequest}
+          onSelect={(id) => { setSelectedVehicleId(id); setHistoryOpen(false); }}
+        />
+      </section>
 
-      <section className="workspace">
-        <aside className="fleet-panel">
-          <div className="panel-heading">
-            <div>
-              <span className="section-kicker">FLEET</span>
-              <h2>Ambulance units</h2>
-            </div>
-            <span>{liveCount}/{vehicles.length} live</span>
-          </div>
-          <div className="vehicle-list">
-            {sortedVehicles.map((vehicle) => {
-              const state = freshness(vehicle);
-              return (
-                <button
-                  type="button"
-                  className={`vehicle-row${selectedVehicleId === vehicle.vehicle_id ? ' selected' : ''}`}
-                  key={vehicle.vehicle_id}
-                  onClick={() => setSelectedVehicleId(vehicle.vehicle_id)}
-                >
-                  <div className="vehicle-row-head">
-                    <span className={`status-dot ${state.toLowerCase().replace(' ', '-')}`} />
-                    <strong>{vehicle.vehicle_code}</strong>
-                    <span className={`freshness ${state.toLowerCase().replace(' ', '-')}`}>{state}</span>
-                  </div>
-                  <div className="vehicle-meta">
-                    <span>{vehicle.label || vehicle.status}</span>
-                    <span>{ageLabel(vehicle.location?.recorded_at)}</span>
-                  </div>
-                  <div className="vehicle-quick-data">
-                    <span>{formatSpeed(vehicle.location?.speed_mps)}</span>
-                    <span>{vehicle.location?.network_type || 'No network'}</span>
-                  </div>
-                </button>
-              );
-            })}
-            {sortedVehicles.length === 0 && <div className="empty">No vehicles provisioned.</div>}
-          </div>
-        </aside>
+      <aside className="fleet-rail">
+        <div className="fleet-brand"><BrandMark /></div>
+        <div className="rail-search">
+          <span aria-hidden="true">⌕</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ambulances" aria-label="Search ambulances" />
+        </div>
+        <div className="rail-summary">
+          <div><strong>{vehicles.length}</strong><span>Units</span></div>
+          <div><strong>{liveCount}</strong><span>Live</span></div>
+          <div><strong>{offlineCount}</strong><span>Offline</span></div>
+        </div>
+        <div className="rail-section-title">Fleet</div>
+        <div className="vehicle-list">
+          {filteredVehicles.map((vehicle) => {
+            const state = freshness(vehicle);
+            return (
+              <button
+                type="button"
+                className={`vehicle-row${selectedVehicleId === vehicle.vehicle_id ? ' selected' : ''}`}
+                key={vehicle.vehicle_id}
+                onClick={() => { setSelectedVehicleId(vehicle.vehicle_id); setHistoryOpen(false); }}
+              >
+                <span className={`unit-badge ${statusClass(state)}`}>+</span>
+                <span className="vehicle-copy">
+                  <strong>{vehicle.vehicle_code}</strong>
+                  <small>{vehicle.label || vehicle.status}</small>
+                </span>
+                <span className="vehicle-age">{ageLabel(vehicle.location?.recorded_at)}</span>
+              </button>
+            );
+          })}
+          {filteredVehicles.length === 0 && <div className="empty">No matching ambulances.</div>}
+        </div>
+        <div className="rail-footer">
+          <span className={socketUp ? 'presence-dot live' : 'presence-dot'} />
+          <div><strong>Dispatcher</strong><small>{socketUp ? 'Realtime connected' : 'Reconnecting…'}</small></div>
+          <button type="button" onClick={() => void logout()}>Sign out</button>
+        </div>
+      </aside>
 
-        <section className="map-stage">
-          <div className="map-toolbar">
-            <div>
-              <span className="section-kicker">LIVE MAP</span>
-              <strong>{selectedVehicle ? selectedVehicle.vehicle_code : 'Fleet overview'}</strong>
-            </div>
-            <span className="map-note">OpenStreetMap data · OpenFreeMap tiles</span>
-          </div>
-          <div className="map-wrap">
-            <MapView
-              vehicles={vehicles}
-              selectedVehicleId={selectedVehicleId}
-              history={history}
-              playbackIndex={playbackIndex}
-              onSelect={setSelectedVehicleId}
-            />
-          </div>
-          <div className="playback-panel">
-            <div className="playback-title">
+      <div className="map-top-controls">
+        <div className="filter-group" role="group" aria-label="Fleet filter">
+          {(['ALL', 'LIVE', 'OFFLINE'] as FleetFilter[]).map((value) => (
+            <button key={value} className={fleetFilter === value ? 'active' : ''} onClick={() => setFleetFilter(value)}>
+              {value === 'ALL' ? 'All' : value === 'LIVE' ? 'Live' : 'Offline'}
+            </button>
+          ))}
+        </div>
+        <div className={socketUp ? 'realtime-pill live' : 'realtime-pill'}><span />{socketUp ? 'Live' : 'Reconnecting'}</div>
+      </div>
+
+      <aside className="unit-inspector">
+        {selectedVehicle ? (
+          <>
+            <div className="inspector-head">
               <div>
-                <span className="section-kicker">PLAYBACK</span>
-                <strong>{historyLoading ? 'Loading route…' : history.length > 0 ? formatPlaybackTime(selectedPlaybackSample) : 'No route data'}</strong>
+                <h2>{selectedVehicle.vehicle_code}</h2>
+                <p>{selectedVehicle.label || 'Ambulance unit'}</p>
               </div>
-              <div className="playback-actions">
-                <select value={historyHours} onChange={(event) => setHistoryHours(Number(event.target.value))} aria-label="Playback range">
-                  <option value={1}>Last hour</option>
-                  <option value={6}>Last 6 hours</option>
-                  <option value={24}>Last 24 hours</option>
-                </select>
-                <button
-                  className="play-button"
-                  disabled={history.length < 2}
-                  onClick={() => {
-                    if (playbackIndex >= history.length - 1) setPlaybackIndex(0);
-                    setPlaying((value) => !value);
-                  }}
-                >
-                  {playing ? 'Pause' : 'Play'}
-                </button>
-                <button className="quiet-button" disabled={history.length === 0} onClick={() => { setPlaying(false); setPlaybackIndex(history.length - 1); }}>
-                  Live
-                </button>
-              </div>
+              <span className={`state-pill ${statusClass(freshness(selectedVehicle))}`}>
+                <i />{freshness(selectedVehicle) === 'LIVE' ? 'Online' : freshness(selectedVehicle)}
+              </span>
             </div>
-            <input
-              className="timeline"
-              type="range"
-              min={0}
-              max={Math.max(0, history.length - 1)}
-              value={Math.max(0, playbackIndex)}
-              disabled={history.length < 2}
-              onChange={(event) => { setPlaying(false); setPlaybackIndex(Number(event.target.value)); }}
-              aria-label="Route playback position"
-            />
-            <div className="timeline-meta">
-              <span>{history.length > 0 ? new Date(history[0].recorded_at).toLocaleTimeString() : '—'}</span>
-              <span>{historyError || `${history.length.toLocaleString()} sampled points`}</span>
-              <span>{history.length > 0 ? new Date(history[history.length - 1].recorded_at).toLocaleTimeString() : '—'}</span>
-            </div>
-          </div>
-        </section>
 
-        <aside className="details-panel">
-          {selectedVehicle ? (
-            <>
-              <div className="details-heading">
-                <div>
-                  <span className="section-kicker">SELECTED UNIT</span>
-                  <h2>{selectedVehicle.vehicle_code}</h2>
-                  <p>{selectedVehicle.label}</p>
-                </div>
-                <span className={`freshness large ${freshness(selectedVehicle).toLowerCase().replace(' ', '-')}`}>{freshness(selectedVehicle)}</span>
-              </div>
-              <div className="current-position">
+            <div className="status-card">
+              <span className={`large-status-dot ${statusClass(freshness(selectedVehicle))}`} />
+              <div><strong>{selectedVehicle.status || 'Active'}</strong><small>{freshness(selectedVehicle) === 'LIVE' ? 'Tracker reporting normally' : 'Tracker connection degraded'}</small></div>
+            </div>
+
+            <div className="metric-grid">
+              <div><span>Speed</span><strong>{formatSpeed(selectedVehicle.location?.speed_mps)}</strong></div>
+              <div><span>Battery</span><strong>{selectedVehicle.location?.battery_pct == null ? '—' : `${selectedVehicle.location.battery_pct}%`}</strong></div>
+              <div><span>Network</span><strong>{selectedVehicle.location?.network_type || '—'}</strong></div>
+              <div><span>GPS</span><strong>{selectedVehicle.location?.accuracy_m == null ? '—' : `±${Math.round(selectedVehicle.location.accuracy_m)} m`}</strong></div>
+            </div>
+
+            <div className="location-card">
+              <div>
                 <span>Current position</span>
                 <strong>{formatCoordinates(selectedVehicle.location)}</strong>
-                <small>{ageLabel(selectedVehicle.location?.recorded_at)}</small>
+                <small>Updated {ageLabel(selectedVehicle.location?.recorded_at)}</small>
               </div>
-              <dl className="telemetry-grid">
-                <div><dt>Speed</dt><dd>{formatSpeed(selectedVehicle.location?.speed_mps)}</dd></div>
-                <div><dt>Heading</dt><dd>{formatBearing(selectedVehicle.location?.bearing_deg)}</dd></div>
-                <div><dt>Accuracy</dt><dd>{selectedVehicle.location?.accuracy_m == null ? '—' : `±${Math.round(selectedVehicle.location.accuracy_m)} m`}</dd></div>
-                <div><dt>Battery</dt><dd>{selectedVehicle.location?.battery_pct == null ? '—' : `${selectedVehicle.location.battery_pct}%`}</dd></div>
-                <div><dt>Network</dt><dd>{selectedVehicle.location?.network_type || '—'}</dd></div>
-                <div><dt>Node</dt><dd>{selectedVehicle.connected ? 'WebSocket connected' : 'Not connected'}</dd></div>
-              </dl>
-              <div className="playback-snapshot">
-                <div className="section-kicker">PLAYBACK SAMPLE</div>
-                {selectedPlaybackSample ? (
-                  <>
-                    <strong>{formatPlaybackTime(selectedPlaybackSample)}</strong>
-                    <span>{formatSpeed(selectedPlaybackSample.speed_mps)} · {formatBearing(selectedPlaybackSample.bearing_deg)}</span>
-                    <span>{formatCoordinates(selectedPlaybackSample)}</span>
-                  </>
-                ) : <span>No history loaded.</span>}
-              </div>
-            </>
-          ) : (
-            <div className="empty details-empty">Select a unit to inspect telemetry.</div>
-          )}
-        </aside>
-      </section>
+              <button onClick={() => setFocusRequest((value) => value + 1)}>View on map</button>
+            </div>
+
+            <dl className="detail-list">
+              <div><dt>Heading</dt><dd>{formatBearing(selectedVehicle.location?.bearing_deg)}</dd></div>
+              <div><dt>Connection</dt><dd>{selectedVehicle.connected ? 'WebSocket connected' : 'Not connected'}</dd></div>
+              <div><dt>Session</dt><dd>{selectedVehicle.location?.tracking_session_id ? selectedVehicle.location.tracking_session_id.slice(0, 8) : '—'}</dd></div>
+            </dl>
+
+            <div className="inspector-actions">
+              <button className="secondary-action" onClick={() => setHistoryOpen((value) => !value)}>{historyOpen ? 'Hide history' : 'View history'}</button>
+              <button className="primary-action" onClick={() => setFocusRequest((value) => value + 1)}>Center unit</button>
+            </div>
+          </>
+        ) : <div className="empty details-empty">Select an ambulance on the map.</div>}
+      </aside>
+
+      {historyOpen && selectedVehicle && (
+        <section className="history-drawer">
+          <div className="history-head">
+            <div>
+              <span>Route history · {selectedVehicle.vehicle_code}</span>
+              <strong>{historyLoading ? 'Loading…' : history.length > 0 ? formatPlaybackTime(selectedPlaybackSample) : 'No route data'}</strong>
+            </div>
+            <div className="history-actions">
+              <select value={historyHours} onChange={(event) => setHistoryHours(Number(event.target.value))} aria-label="History range">
+                <option value={1}>1 hour</option>
+                <option value={6}>6 hours</option>
+                <option value={24}>24 hours</option>
+              </select>
+              <button disabled={history.length < 2} onClick={() => {
+                if (playbackIndex >= history.length - 1) setPlaybackIndex(0);
+                setPlaying((value) => !value);
+              }}>{playing ? 'Pause' : 'Play'}</button>
+              <button onClick={() => setHistoryOpen(false)}>Close</button>
+            </div>
+          </div>
+          <input
+            className="timeline"
+            type="range"
+            min={0}
+            max={Math.max(0, history.length - 1)}
+            value={Math.max(0, playbackIndex)}
+            disabled={history.length < 2}
+            onChange={(event) => { setPlaying(false); setPlaybackIndex(Number(event.target.value)); }}
+            aria-label="Route playback position"
+          />
+          <div className="history-meta">
+            <span>{history.length > 0 ? new Date(history[0].recorded_at).toLocaleTimeString() : '—'}</span>
+            <span>{historyError || `${history.length.toLocaleString()} points`}</span>
+            <span>{history.length > 0 ? new Date(history[history.length - 1].recorded_at).toLocaleTimeString() : '—'}</span>
+          </div>
+        </section>
+      )}
     </main>
   );
 }
