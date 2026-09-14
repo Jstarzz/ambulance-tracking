@@ -49,11 +49,21 @@ func (h *Hub) broadcast(v any) {
 		conns = append(conns, c)
 	}
 	h.mu.RUnlock()
+
+	// Fan out concurrently: a sequential loop lets one slow or stalled dispatcher
+	// (sleeping laptop, flaky wifi) block delivery to every other dispatcher for
+	// up to the full write timeout on every single location update.
+	var wg sync.WaitGroup
+	wg.Add(len(conns))
 	for _, c := range conns {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = wsjson.Write(ctx, c, v)
-		cancel()
+		go func(c *websocket.Conn) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = wsjson.Write(ctx, c, v)
+		}(c)
 	}
+	wg.Wait()
 }
 
 func New(s *store.Store, cfg Config, log *slog.Logger) *App {

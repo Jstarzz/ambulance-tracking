@@ -22,7 +22,7 @@ func (s *Store) LocationHistory(ctx context.Context, vehicleID string, since tim
 		WITH latest_session AS (
 			SELECT l.tracking_session_id
 			FROM location_events l
-			WHERE l.vehicle_id::text = $1
+			WHERE l.vehicle_id = $1::uuid
 				AND l.recorded_at >= $2
 			ORDER BY l.recorded_at DESC
 			LIMIT 1
@@ -47,7 +47,7 @@ func (s *Store) LocationHistory(ctx context.Context, vehicleID string, since tim
 			FROM location_events l
 			JOIN vehicles v ON v.id = l.vehicle_id
 			JOIN latest_session s ON s.tracking_session_id = l.tracking_session_id
-			WHERE l.vehicle_id::text = $1
+			WHERE l.vehicle_id = $1::uuid
 				AND l.recorded_at >= $2
 		), sampled AS (
 			SELECT *
@@ -105,7 +105,7 @@ func (s *Store) LatestLocation(ctx context.Context, vehicleID string) (Location,
 			l.bearing_deg, l.altitude_m, l.battery_pct, l.network_type
 		FROM location_events l
 		JOIN vehicles v ON v.id = l.vehicle_id
-		WHERE l.vehicle_id::text = $1
+		WHERE l.vehicle_id = $1::uuid
 		ORDER BY l.recorded_at DESC
 		LIMIT 1`, vehicleID).Scan(
 		&l.DeviceID,

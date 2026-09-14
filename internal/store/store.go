@@ -154,7 +154,7 @@ func (s *Store) RevokeUserSession(ctx context.Context, token string) {
 func (s *Store) AuthenticateDevice(ctx context.Context, deviceID, key string) (Device, error) {
 	var d Device
 	var stored []byte
-	err := s.pool.QueryRow(ctx, `SELECT d.id::text,d.vehicle_id::text,v.code,d.name,d.key_hash FROM devices d JOIN vehicles v ON v.id=d.vehicle_id WHERE d.id::text=$1 AND d.active=true`, deviceID).Scan(&d.ID, &d.VehicleID, &d.VehicleCode, &d.Name, &stored)
+	err := s.pool.QueryRow(ctx, `SELECT d.id::text,d.vehicle_id::text,v.code,d.name,d.key_hash FROM devices d JOIN vehicles v ON v.id=d.vehicle_id WHERE d.id=$1::uuid AND d.active=true`, deviceID).Scan(&d.ID, &d.VehicleID, &d.VehicleCode, &d.Name, &stored)
 	if err != nil {
 		return Device{}, err
 	}

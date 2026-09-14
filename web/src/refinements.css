@@ -1,6 +1,7 @@
 /* Dispatcher UI: full-color map, quiet white chrome, operational hierarchy. */
 
 :root {
+  color-scheme: light;
   --surface: #ffffff;
   --surface-soft: #f8f9fa;
   --surface-hover: #f1f3f4;
@@ -19,12 +20,23 @@
   --shadow-high: 0 8px 28px rgba(60, 64, 67, .24), 0 2px 8px rgba(60, 64, 67, .16);
 }
 
+* {
+  box-sizing: border-box;
+}
+
 html,
 body,
 #root {
   width: 100%;
   height: 100%;
   margin: 0;
+}
+
+body {
+  min-width: 320px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  background: #eaf1f8;
 }
 
 body,
@@ -36,15 +48,28 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
-body {
-  overflow: hidden;
-  background: #eaf1f8;
-}
-
 button,
 input,
 select {
   font: inherit;
+}
+
+/* No element in this app should ever fall back to the browser-default link blue. */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button:not(:disabled),
+select:not(:disabled) {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled,
+select:disabled {
+  cursor: default;
+  opacity: .45;
 }
 
 button:focus-visible,
@@ -76,7 +101,7 @@ select:focus-visible {
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -123,12 +148,12 @@ select:focus-visible {
 }
 
 .fleet-brand {
-  padding: 18px 18px 12px;
+  padding: 16px 16px 12px;
 }
 
 .rail-search {
   height: 44px;
-  margin: 0 14px;
+  margin: 0 16px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -163,7 +188,7 @@ select:focus-visible {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 1px;
-  margin: 14px 14px 10px;
+  margin: 12px 16px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -173,7 +198,7 @@ select:focus-visible {
 .rail-summary div {
   display: grid;
   gap: 1px;
-  padding: 9px 6px;
+  padding: 8px;
   text-align: center;
   background: var(--surface);
 }
@@ -208,12 +233,12 @@ select:focus-visible {
 
 .vehicle-row {
   width: 100%;
-  min-height: 62px;
+  min-height: 60px;
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: 8px;
+  padding: 12px 16px;
   border: 0;
   border-top: 1px solid #eef0f2;
   border-radius: 0;
@@ -240,8 +265,11 @@ select:focus-visible {
   border-radius: 9px;
   background: #80868b;
   color: white;
-  font-size: 19px;
-  font-weight: 700;
+}
+
+.unit-badge svg {
+  width: 18px;
+  height: 18px;
 }
 
 .unit-badge.live { background: var(--green); }
@@ -279,8 +307,8 @@ select:focus-visible {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
-  padding: 10px 14px;
+  gap: 8px;
+  padding: 12px 16px;
   border-top: 1px solid var(--line);
   background: #fff;
 }
@@ -318,7 +346,12 @@ select:focus-visible {
 }
 
 .rail-footer button {
-  padding: 7px 9px;
+  min-width: 48px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
   border: 0;
   border-radius: 9px;
   background: transparent;
@@ -337,7 +370,7 @@ select:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 12px;
   pointer-events: none;
 }
 
@@ -347,8 +380,8 @@ select:focus-visible {
 
 .filter-group {
   display: inline-flex;
-  gap: 6px;
-  padding: 5px;
+  gap: 4px;
+  padding: 4px;
   border: 1px solid rgba(218, 220, 224, .96);
   border-radius: 25px;
   background: rgba(255, 255, 255, .97);
@@ -357,8 +390,8 @@ select:focus-visible {
 
 .filter-group button {
   height: 36px;
-  min-width: 66px;
-  padding: 0 14px;
+  min-width: 64px;
+  padding: 0 16px;
   border: 0;
   border-radius: 18px;
   background: transparent;
@@ -382,7 +415,7 @@ select:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 0 14px;
+  padding: 0 16px;
   border: 1px solid var(--line);
   border-radius: 23px;
   background: rgba(255, 255, 255, .97);
@@ -401,10 +434,10 @@ select:focus-visible {
   z-index: 20;
   top: 16px;
   right: 16px;
-  bottom: 16px;
   width: 320px;
+  max-height: calc(100vh - 32px);
   overflow-y: auto;
-  padding: 18px;
+  padding: 16px;
   border: 1px solid rgba(218, 220, 224, .96);
   border-radius: 16px;
   background: rgba(255, 255, 255, .98);
@@ -417,15 +450,16 @@ select:focus-visible {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding-bottom: 14px;
+  padding-bottom: 16px;
   border-bottom: 1px solid var(--line);
 }
 
 .inspector-head h2 {
   margin: 0;
   color: var(--text);
-  font-size: 23px;
+  font-size: 28px;
   line-height: 1.1;
+  font-weight: 700;
   letter-spacing: -.02em;
 }
 
@@ -439,8 +473,8 @@ select:focus-visible {
   min-height: 28px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 10px;
+  gap: 8px;
+  padding: 0 12px;
   border-radius: 14px;
   background: #f1f3f4;
   color: var(--muted);
@@ -467,21 +501,21 @@ select:focus-visible {
 }
 
 .status-card {
-  min-height: 58px;
+  min-height: 56px;
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 10px;
-  margin-top: 14px;
-  padding: 11px 12px;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface);
 }
 
 .large-status-dot {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
 }
 
 .large-status-dot.delayed,
@@ -513,9 +547,9 @@ select:focus-visible {
 
 .metric-grid div {
   min-width: 0;
-  padding: 11px;
+  padding: 12px;
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 12px;
   background: var(--surface-soft);
 }
 
@@ -541,7 +575,7 @@ select:focus-visible {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin-top: 12px;
   padding: 12px;
   border: 1px solid var(--line);
@@ -551,7 +585,7 @@ select:focus-visible {
 .location-card > div {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  gap: 4px;
 }
 
 .location-card span,
@@ -568,7 +602,9 @@ select:focus-visible {
 }
 
 .location-card button {
-  padding: 8px 10px;
+  min-width: 48px;
+  min-height: 32px;
+  padding: 8px 12px;
   border: 1px solid var(--blue);
   border-radius: 9px;
   background: white;
@@ -579,14 +615,14 @@ select:focus-visible {
 }
 
 .detail-list {
-  margin: 14px 0 0;
+  margin: 16px 0 0;
 }
 
 .detail-list div {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 12px;
-  padding: 10px 0;
+  padding: 8px 0;
   border-bottom: 1px solid #eef0f2;
 }
 
@@ -614,6 +650,7 @@ select:focus-visible {
 .history-actions button,
 .history-actions select {
   min-height: 40px;
+  padding: 0 14px;
   border-radius: 10px;
   font-size: 11px;
   font-weight: 600;
@@ -637,7 +674,7 @@ select:focus-visible {
   left: 304px;
   right: 354px;
   bottom: 16px;
-  padding: 14px 16px 12px;
+  padding: 16px;
   border: 1px solid rgba(218, 220, 224, .96);
   border-radius: 16px;
   background: rgba(255, 255, 255, .98);
@@ -669,13 +706,13 @@ select:focus-visible {
 .history-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .history-actions button,
 .history-actions select {
-  min-height: 34px;
-  padding: 0 11px;
+  min-height: 36px;
+  padding: 0 12px;
   border: 1px solid var(--line);
   background: white;
   color: var(--text);
@@ -705,8 +742,8 @@ select:focus-visible {
   height: 32px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 9px 0 5px;
+  gap: 8px;
+  padding: 0 8px 0 4px;
   border: 1px solid rgba(95, 99, 104, .58);
   border-radius: 8px;
   background: rgba(255, 255, 255, .96);
@@ -729,8 +766,11 @@ select:focus-visible {
   border-radius: 6px;
   background: #80868b;
   color: white;
-  font-size: 15px;
-  font-weight: 800;
+}
+
+.marker-symbol svg {
+  width: 13px;
+  height: 13px;
 }
 
 .vehicle-marker.live .marker-symbol { background: var(--green); }
@@ -745,7 +785,7 @@ select:focus-visible {
 
 .maplibregl-ctrl-bottom-right {
   right: 348px !important;
-  bottom: 18px !important;
+  bottom: 16px !important;
 }
 
 .maplibregl-ctrl-group {
@@ -777,14 +817,14 @@ select:focus-visible {
 }
 
 .empty {
-  padding: 18px;
+  padding: 16px;
   color: var(--muted);
   font-size: 11px;
   text-align: center;
 }
 
 .details-empty {
-  margin-top: 30px;
+  margin-top: 32px;
 }
 
 .login-page {
@@ -792,6 +832,7 @@ select:focus-visible {
   height: 100%;
   display: grid;
   place-items: center;
+  padding: 24px;
   background: linear-gradient(180deg, #eaf4fb 0%, #f8fafc 100%);
 }
 
@@ -808,21 +849,36 @@ select:focus-visible {
 
 .login-copy h1 {
   margin: 0;
-  font-size: 22px;
+  color: var(--text);
+  font-size: 30px;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -.02em;
 }
 
 .login-copy p {
-  margin: 5px 0 0;
+  margin: 4px 0 0;
   color: var(--muted);
   font-size: 12px;
 }
 
 .login-panel label {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   color: #3c4043;
   font-size: 11px;
   font-weight: 600;
+}
+
+.field-label {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.required-mark {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .login-panel input {
@@ -836,6 +892,7 @@ select:focus-visible {
 
 .primary-button {
   height: 46px;
+  padding: 0 16px;
   border: 1px solid var(--blue);
   border-radius: 10px;
   background: var(--blue);
@@ -844,11 +901,27 @@ select:focus-visible {
 }
 
 .error {
-  padding: 10px 12px;
+  padding: 12px;
   border-radius: 9px;
   background: var(--red-soft);
   color: var(--red);
   font-size: 11px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.error:empty {
+  display: none;
 }
 
 .boot {
@@ -862,39 +935,39 @@ select:focus-visible {
 
 @media (max-width: 1180px) {
   .fleet-rail { width: 236px; }
-  .unit-inspector { width: 286px; }
-  .map-top-controls { left: 270px; right: 320px; }
-  .history-drawer { left: 270px; right: 320px; }
-  .maplibregl-ctrl-bottom-right { right: 314px !important; }
+  .unit-inspector { width: 288px; }
+  .map-top-controls { left: 268px; right: 320px; }
+  .history-drawer { left: 268px; right: 320px; }
+  .maplibregl-ctrl-bottom-right { right: 316px !important; }
 }
 
 @media (max-width: 940px) {
   .unit-inspector { display: none; }
   .map-top-controls { right: 16px; }
   .history-drawer { right: 16px; }
-  .maplibregl-ctrl-bottom-right { right: 14px !important; }
+  .maplibregl-ctrl-bottom-right { right: 16px !important; }
 }
 
 @media (max-width: 700px) {
   .fleet-rail {
-    top: 10px;
-    left: 10px;
-    bottom: 10px;
-    width: 210px;
+    top: 12px;
+    left: 12px;
+    bottom: 12px;
+    width: 208px;
   }
-  .fleet-brand { padding: 14px 14px 10px; }
+  .fleet-brand { padding: 12px 12px 8px; }
   .brand span { display: none; }
   .rail-summary { display: none; }
   .map-top-controls {
     left: 232px;
-    right: 10px;
+    right: 12px;
     justify-content: flex-end;
   }
-  .filter-group button { min-width: 52px; padding: 0 10px; }
+  .filter-group button { min-width: 52px; padding: 0 12px; }
   .realtime-pill { display: none; }
   .history-drawer {
     left: 232px;
-    right: 10px;
-    bottom: 10px;
+    right: 12px;
+    bottom: 12px;
   }
 }
