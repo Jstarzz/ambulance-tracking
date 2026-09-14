@@ -16,6 +16,7 @@ val releaseSigningConfigured = listOf(
 
 val configuredVersionCode = System.getenv("VERSION_CODE")?.toIntOrNull() ?: 1
 val configuredVersionName = System.getenv("VERSION_NAME") ?: "0.1.0"
+val configuredApiBaseUrl = (System.getenv("EMS_API_BASE_URL") ?: "https://tracking.itsjosiahdavis.dev").trimEnd('/')
 
 android {
     namespace = "kn.org.ndhis.ambulancetracker"
@@ -27,6 +28,11 @@ android {
         targetSdk = 35
         versionCode = configuredVersionCode
         versionName = configuredVersionName
+        buildConfigField("String", "EMS_API_BASE_URL", "\"$configuredApiBaseUrl\"")
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     signingConfigs {
