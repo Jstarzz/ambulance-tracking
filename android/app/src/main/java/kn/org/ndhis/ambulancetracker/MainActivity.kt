@@ -11,7 +11,6 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.os.Build
 import android.os.Bundle
@@ -81,7 +80,7 @@ class MainActivity : Activity() {
             val status = intent.getStringExtra(TrackingService.EXTRA_STATUS) ?: "Unknown"
             renderStatus(status)
             networkText.text = intent.getStringExtra(TrackingService.EXTRA_NETWORK) ?: "—"
-            bufferText.text = "${intent.getLongExtra(TrackingService.EXTRA_BUFFERED, 0L)} records"
+            bufferText.text = "${intent.getLongExtra(TrackingService.EXTRA_BUFFERED, 0L)} queued"
 
             if (intent.hasExtra(TrackingService.EXTRA_SPEED_MPS)) {
                 val speed = intent.getFloatExtra(TrackingService.EXTRA_SPEED_MPS, 0f) * 3.6f
@@ -99,7 +98,7 @@ class MainActivity : Activity() {
                 updateMap(LatLng(latitude, longitude))
             }
             if (intent.hasExtra(TrackingService.EXTRA_BATTERY)) {
-                batteryText.text = "${intent.getIntExtra(TrackingService.EXTRA_BATTERY, 0)}%"
+                batteryText.text = "${intent.getIntExtra(TrackingService.EXTRA_BATTERY, 0)}% battery"
             }
         }
     }
@@ -196,10 +195,10 @@ class MainActivity : Activity() {
         serverUrl.visibility = fieldVisibility
         vehicleCode.visibility = fieldVisibility
         deviceKey.visibility = fieldVisibility
-        configToggleButton.text = if (expanded) "Hide configuration" else "Edit configuration"
+        configToggleButton.text = if (expanded) "Hide configuration" else "Device setup"
 
         if (expanded) {
-            connectionHint.text = "Provision this device with its server endpoint and unit credentials."
+            connectionHint.text = "Provision this tracker with its secure server endpoint and unit credentials."
             return
         }
 
@@ -240,7 +239,7 @@ class MainActivity : Activity() {
         statusText.text = status
         val live = status.equals("Live", ignoreCase = true)
         statusText.setBackgroundResource(if (live) R.drawable.bg_status_live else R.drawable.bg_status_idle)
-        statusText.setTextColor(getColor(if (live) R.color.app_teal else R.color.app_muted))
+        statusText.setTextColor(getColor(if (live) R.color.app_green else R.color.app_muted))
     }
 
     private fun updateMap(point: LatLng) {
@@ -272,7 +271,7 @@ class MainActivity : Activity() {
 
         paint.color = getColor(R.color.app_bg)
         canvas.drawCircle(size / 2f, size / 2f, radius + outline, paint)
-        paint.color = getColor(R.color.app_teal)
+        paint.color = getColor(R.color.app_blue)
         canvas.drawCircle(size / 2f, size / 2f, radius, paint)
 
         return IconFactory.getInstance(this).fromBitmap(bitmap)
@@ -302,7 +301,7 @@ class MainActivity : Activity() {
             routeLine = readyMap.addPolyline(
                 PolylineOptions()
                     .addAll(points)
-                    .color(Color.rgb(85, 184, 175))
+                    .color(getColor(R.color.app_blue))
                     .width(4f),
             )
         } else {
