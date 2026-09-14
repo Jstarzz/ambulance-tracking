@@ -10,21 +10,23 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- Maps-style compact floating unit chip. The map remains the primary surface. -->
+    <!-- Compact Maps-style floating identity chip. -->
     <LinearLayout
+        android:id="@+id/unitChip"
         android:layout_width="wrap_content"
-        android:layout_height="48dp"
+        android:layout_height="52dp"
         android:layout_gravity="top|start"
         android:layout_marginStart="12dp"
         android:layout_marginTop="12dp"
-        android:background="@drawable/bg_card"
-        android:elevation="6dp"
+        android:background="@drawable/bg_map_chip"
+        android:elevation="8dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp">
+        android:paddingStart="14dp"
+        android:paddingEnd="16dp">
 
         <View
+            android:id="@+id/liveDot"
             android:layout_width="8dp"
             android:layout_height="8dp"
             android:background="@drawable/bg_status_dot_live" />
@@ -32,7 +34,7 @@
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="9dp"
+            android:layout_marginStart="10dp"
             android:orientation="vertical">
 
             <TextView
@@ -56,25 +58,44 @@
     </LinearLayout>
 
     <Button
-        android:id="@+id/recenterButton"
+        android:id="@+id/configToggleButton"
         android:layout_width="52dp"
         android:layout_height="52dp"
-        android:layout_gravity="end|center_vertical"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="12dp"
         android:layout_marginEnd="12dp"
-        android:background="@drawable/bg_button_quiet"
-        android:contentDescription="Center map on ambulance"
-        android:drawableStart="@drawable/ic_my_location"
+        android:background="@drawable/bg_map_fab"
+        android:contentDescription="Tracker settings"
+        android:drawableStart="@drawable/ic_settings"
+        android:elevation="8dp"
         android:gravity="center"
         android:minWidth="0dp"
         android:padding="14dp"
         android:text="" />
 
-    <!-- Bottom sheet: only operational information belongs on the day-to-day tracker. -->
+    <Button
+        android:id="@+id/recenterButton"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
+        android:layout_gravity="end|bottom"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="264dp"
+        android:background="@drawable/bg_map_fab"
+        android:contentDescription="Center map on ambulance"
+        android:drawableStart="@drawable/ic_my_location"
+        android:elevation="8dp"
+        android:gravity="center"
+        android:minWidth="0dp"
+        android:padding="14dp"
+        android:text="" />
+
+    <!-- Day-to-day operational bottom sheet. -->
     <LinearLayout
+        android:id="@+id/operationalSheet"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:background="@color/app_panel"
+        android:background="@drawable/bg_bottom_sheet"
         android:elevation="16dp"
         android:orientation="vertical"
         android:paddingStart="20dp"
@@ -83,10 +104,10 @@
         android:paddingBottom="18dp">
 
         <View
-            android:layout_width="34dp"
-            android:layout_height="3dp"
+            android:layout_width="36dp"
+            android:layout_height="4dp"
             android:layout_gravity="center_horizontal"
-            android:layout_marginBottom="12dp"
+            android:layout_marginBottom="14dp"
             android:background="@color/app_line" />
 
         <LinearLayout
@@ -108,11 +129,11 @@
                     android:fontFamily="sans-serif-medium"
                     android:text="Tracking off"
                     android:textColor="@color/app_text"
-                    android:textSize="20sp" />
+                    android:textSize="21sp" />
 
                 <TextView
                     android:id="@+id/coordsText"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
                     android:fontFamily="sans-serif"
@@ -137,15 +158,29 @@
             android:layout_marginTop="16dp"
             android:orientation="horizontal">
 
-            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif" android:text="Speed" android:textColor="@color/app_muted" android:textSize="11sp" />
                 <TextView android:id="@+id/speedText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:fontFamily="sans-serif-medium" android:text="—" android:textColor="@color/app_text" android:textSize="17sp" />
             </LinearLayout>
-            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif" android:text="Accuracy" android:textColor="@color/app_muted" android:textSize="11sp" />
                 <TextView android:id="@+id/accuracyText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:fontFamily="sans-serif-medium" android:text="—" android:textColor="@color/app_text" android:textSize="17sp" />
             </LinearLayout>
-            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif" android:text="Network" android:textColor="@color/app_muted" android:textSize="11sp" />
                 <TextView android:id="@+id/networkText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:fontFamily="sans-serif-medium" android:text="—" android:textColor="@color/app_text" android:textSize="14sp" />
             </LinearLayout>
@@ -157,45 +192,14 @@
             android:layout_marginTop="12dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
-            <TextView android:id="@+id/bufferText" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:fontFamily="sans-serif" android:text="0 queued" android:textColor="@color/app_muted" android:textSize="11sp" />
+            <TextView android:id="@+id/bufferText" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:fontFamily="sans-serif" android:text="0 pending" android:textColor="@color/app_muted" android:textSize="11sp" />
             <TextView android:id="@+id/serverStateText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:ellipsize="end" android:fontFamily="sans-serif" android:maxLines="1" android:text="Not configured" android:textColor="@color/app_muted" android:textSize="11sp" />
         </LinearLayout>
-
-        <!-- Provisioning is hidden after setup; retained here until enrollment gets its own Activity. -->
-        <TextView
-            android:id="@+id/connectionHint"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:fontFamily="sans-serif"
-            android:text="Set up this tracker before starting."
-            android:textColor="@color/app_muted"
-            android:textSize="11sp" />
-
-        <Button
-            android:id="@+id/configToggleButton"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
-            android:layout_marginTop="4dp"
-            android:background="@android:color/transparent"
-            android:fontFamily="sans-serif-medium"
-            android:minHeight="40dp"
-            android:minWidth="0dp"
-            android:paddingStart="0dp"
-            android:paddingEnd="16dp"
-            android:text="Device setup"
-            android:textAllCaps="false"
-            android:textColor="@color/app_blue"
-            android:textSize="13sp" />
-
-        <EditText android:id="@+id/serverUrl" android:layout_width="match_parent" android:layout_height="48dp" android:layout_marginTop="6dp" android:background="@drawable/bg_input" android:fontFamily="sans-serif" android:hint="Server URL" android:inputType="textUri" android:singleLine="true" android:textColor="@color/app_text" android:textColorHint="#717983" android:textSize="14sp" />
-        <EditText android:id="@+id/vehicleCode" android:layout_width="match_parent" android:layout_height="48dp" android:layout_marginTop="8dp" android:background="@drawable/bg_input" android:fontFamily="sans-serif" android:hint="Ambulance code" android:inputType="textCapCharacters" android:singleLine="true" android:textColor="@color/app_text" android:textColorHint="#717983" android:textSize="14sp" />
-        <EditText android:id="@+id/deviceKey" android:layout_width="match_parent" android:layout_height="48dp" android:layout_marginTop="8dp" android:background="@drawable/bg_input" android:fontFamily="sans-serif" android:hint="Device key" android:inputType="textPassword" android:singleLine="true" android:textColor="@color/app_text" android:textColorHint="#717983" android:textSize="14sp" />
 
         <Button
             android:id="@+id/startButton"
             android:layout_width="match_parent"
-            android:layout_height="58dp"
+            android:layout_height="56dp"
             android:layout_marginTop="14dp"
             android:background="@drawable/bg_button_primary"
             android:fontFamily="sans-serif-medium"
@@ -207,8 +211,8 @@
         <Button
             android:id="@+id/stopButton"
             android:layout_width="match_parent"
-            android:layout_height="58dp"
-            android:layout_marginTop="8dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="14dp"
             android:background="@drawable/bg_button_stop"
             android:fontFamily="sans-serif-medium"
             android:text="Stop tracking"
@@ -216,5 +220,112 @@
             android:textColor="#FFB7BA"
             android:textSize="16sp"
             android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- Separate setup sheet: never mixed into the operational surface. -->
+    <LinearLayout
+        android:id="@+id/setupSheet"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="@drawable/bg_bottom_sheet"
+        android:elevation="20dp"
+        android:orientation="vertical"
+        android:paddingStart="20dp"
+        android:paddingTop="10dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="20dp"
+        android:visibility="gone">
+
+        <View
+            android:layout_width="36dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="14dp"
+            android:background="@color/app_line" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="sans-serif-medium"
+            android:text="Set up tracker"
+            android:textColor="@color/app_text"
+            android:textSize="22sp" />
+
+        <TextView
+            android:id="@+id/connectionHint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontFamily="sans-serif"
+            android:text="Connect this phone to its ambulance unit."
+            android:textColor="@color/app_muted"
+            android:textSize="13sp" />
+
+        <EditText
+            android:id="@+id/serverUrl"
+            android:layout_width="match_parent"
+            android:layout_height="50dp"
+            android:layout_marginTop="18dp"
+            android:background="@drawable/bg_input"
+            android:fontFamily="sans-serif"
+            android:hint="Server URL"
+            android:inputType="textUri"
+            android:singleLine="true"
+            android:textColor="@color/app_text"
+            android:textColorHint="#717983"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/vehicleCode"
+            android:layout_width="match_parent"
+            android:layout_height="50dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_input"
+            android:fontFamily="sans-serif"
+            android:hint="Ambulance code"
+            android:inputType="textCapCharacters"
+            android:singleLine="true"
+            android:textColor="@color/app_text"
+            android:textColorHint="#717983"
+            android:textSize="14sp" />
+
+        <EditText
+            android:id="@+id/deviceKey"
+            android:layout_width="match_parent"
+            android:layout_height="50dp"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_input"
+            android:fontFamily="sans-serif"
+            android:hint="Device key"
+            android:inputType="textPassword"
+            android:singleLine="true"
+            android:textColor="@color/app_text"
+            android:textColorHint="#717983"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/saveSetupButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/bg_button_primary"
+            android:fontFamily="sans-serif-medium"
+            android:text="Save tracker"
+            android:textAllCaps="false"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp" />
+
+        <Button
+            android:id="@+id/cancelSetupButton"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="6dp"
+            android:background="@android:color/transparent"
+            android:fontFamily="sans-serif-medium"
+            android:text="Cancel"
+            android:textAllCaps="false"
+            android:textColor="@color/app_muted"
+            android:textSize="14sp" />
     </LinearLayout>
 </FrameLayout>
