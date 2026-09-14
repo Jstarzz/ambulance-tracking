@@ -44,6 +44,12 @@ func isEnrollmentRequest(r *http.Request) bool {
 	return strings.HasPrefix(r.URL.Path, "/api/v1/vehicles/") && strings.HasSuffix(r.URL.Path, "/enrollment")
 }
 
+func isRoutingRequest(r *http.Request) bool {
+	return r.Method == http.MethodGet &&
+		strings.HasPrefix(r.URL.Path, "/api/v1/vehicles/") &&
+		strings.HasSuffix(r.URL.Path, "/route")
+}
+
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	ctx := context.Background()
@@ -74,9 +80,14 @@ func main() {
 
 	coreRoutes := a.Routes()
 	enrollmentRoutes := a.EnrollmentRoutes()
+	routingRoutes := a.RoutingRoutes()
 	rootHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isEnrollmentRequest(r) {
 			enrollmentRoutes.ServeHTTP(w, r)
+			return
+		}
+		if isRoutingRequest(r) {
+			routingRoutes.ServeHTTP(w, r)
 			return
 		}
 		coreRoutes.ServeHTTP(w, r)
