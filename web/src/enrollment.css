@@ -84,9 +84,11 @@
   font-weight: 600;
 }
 
-.tracker-enroll-field select {
+.tracker-enroll-field select,
+.tracker-enroll-field input {
   width: 100%;
   height: 48px;
+  box-sizing: border-box;
   padding: 0 12px;
   border: 1px solid #dadce0;
   border-radius: 10px;
@@ -95,10 +97,36 @@
   font: 500 14px/1 Roboto, Arial, sans-serif;
 }
 
-.tracker-enroll-field select:focus {
+.tracker-enroll-field select:focus,
+.tracker-enroll-field input:focus {
   outline: 2px solid #1a73e8;
   outline-offset: 1px;
 }
+
+.tracker-enroll-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.tracker-enroll-optional {
+  margin-left: 4px;
+  color: #80868b;
+  font-weight: 400;
+}
+
+.tracker-enroll-add {
+  min-height: 36px;
+  margin-top: 10px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: #1a73e8;
+  font: 600 12px/1 Roboto, Arial, sans-serif;
+  cursor: pointer;
+}
+
+.tracker-enroll-add:hover { color: #174ea6; }
 
 .tracker-enroll-note {
   margin-top: 12px;
@@ -117,7 +145,8 @@
 }
 
 .tracker-enroll-primary,
-.tracker-enroll-result-actions button {
+.tracker-enroll-result-actions button,
+.tracker-enroll-actions button {
   min-height: 42px;
   padding: 0 16px;
   border-radius: 21px;
@@ -134,7 +163,27 @@
 }
 
 .tracker-enroll-primary:hover { background: #185abc; }
-.tracker-enroll-primary:disabled { opacity: .55; cursor: default; }
+.tracker-enroll-primary:disabled,
+.tracker-enroll-actions button:disabled { opacity: .55; cursor: default; }
+
+.tracker-enroll-actions {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  align-items: end;
+  margin-top: 20px;
+}
+
+.tracker-enroll-actions button:not(.tracker-enroll-primary) {
+  border: 1px solid #dadce0;
+  background: #fff;
+  color: #5f6368;
+}
+
+.tracker-enroll-actions .tracker-enroll-primary {
+  width: auto;
+  margin: 0;
+}
 
 .tracker-enroll-result {
   padding-top: 20px;
@@ -189,4 +238,8 @@
 
 @media (max-width: 900px) {
   .tracker-enroll-launch { display: none; }
+}
+
+@media (max-width: 520px) {
+  .tracker-enroll-form-grid { grid-template-columns: 1fr; gap: 0; }
 }
