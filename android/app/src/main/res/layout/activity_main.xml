@@ -168,29 +168,17 @@
             android:layout_marginTop="13dp"
             android:orientation="horizontal">
 
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif" android:text="Speed" android:textColor="@color/app_muted" android:textSize="10sp" />
                 <TextView android:id="@+id/speedText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:fontFamily="sans-serif-medium" android:text="—" android:textColor="@color/app_text" android:textSize="17sp" />
             </LinearLayout>
 
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif" android:text="GPS" android:textColor="@color/app_muted" android:textSize="10sp" />
                 <TextView android:id="@+id/accuracyText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:fontFamily="sans-serif-medium" android:text="—" android:textColor="@color/app_text" android:textSize="17sp" />
             </LinearLayout>
 
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="sans-serif" android:text="Network" android:textColor="@color/app_muted" android:textSize="10sp" />
                 <TextView android:id="@+id/networkText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:fontFamily="sans-serif-medium" android:text="—" android:textColor="@color/app_text" android:textSize="14sp" />
             </LinearLayout>
@@ -267,11 +255,11 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
             android:fontFamily="sans-serif"
-            android:text="Enter the ambulance unit and registration code provided by dispatch."
+            android:text="Enter the 8-character registration code shown by dispatch."
             android:textColor="@color/app_muted"
             android:textSize="13sp" />
 
-        <!-- Endpoint is deployment configuration, never end-user configuration. -->
+        <!-- Deployment and vehicle identity are resolved by the enrollment code. -->
         <EditText
             android:id="@+id/serverUrl"
             android:layout_width="1dp"
@@ -280,38 +268,33 @@
 
         <EditText
             android:id="@+id/vehicleCode"
-            android:layout_width="match_parent"
-            android:layout_height="54dp"
-            android:layout_marginTop="18dp"
-            android:background="@drawable/bg_input"
-            android:fontFamily="sans-serif"
-            android:hint="Ambulance unit · e.g. AMB-04"
-            android:inputType="textCapCharacters"
-            android:singleLine="true"
-            android:textColor="@color/app_text"
-            android:textColorHint="#80868B"
-            android:textSize="14sp" />
+            android:layout_width="1dp"
+            android:layout_height="1dp"
+            android:visibility="gone" />
 
         <EditText
             android:id="@+id/deviceKey"
             android:layout_width="match_parent"
-            android:layout_height="54dp"
-            android:layout_marginTop="10dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="18dp"
             android:background="@drawable/bg_input"
-            android:fontFamily="sans-serif"
+            android:fontFamily="sans-serif-medium"
+            android:gravity="center_vertical"
             android:hint="Registration code"
-            android:inputType="textCapCharacters"
+            android:imeOptions="actionDone"
+            android:inputType="textCapCharacters|textNoSuggestions"
+            android:maxLength="8"
             android:singleLine="true"
             android:textColor="@color/app_text"
             android:textColorHint="#80868B"
-            android:textSize="14sp" />
+            android:textSize="17sp" />
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
             android:fontFamily="sans-serif"
-            android:text="The server address and device credential are handled automatically."
+            android:text="The code expires after 10 minutes and can only be used once."
             android:textColor="@color/app_muted"
             android:textSize="11sp" />
 
