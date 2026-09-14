@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import maplibregl, { GeoJSONSource, Map as MapLibreMap, Marker } from 'maplibre-gl';
 
 type LocationSample = {
@@ -36,19 +36,23 @@ type LiveMessage = {
 };
 type Freshness = 'LIVE' | 'DELAYED' | 'STALE' | 'OFFLINE' | 'NO DATA';
 type FleetFilter = 'ALL' | 'LIVE' | 'OFFLINE';
+type Destination = { latitude: number; longitude: number };
+type RoutePlan = {
+  vehicle_id: string;
+  origin: { latitude: number; longitude: number; accuracy_m?: number };
+  destination: Destination;
+  distance_m: number;
+  duration_seconds: number;
+  eta_at: string;
+  method: string;
+  approximate: boolean;
+  geometry: { type: 'LineString'; coordinates: number[][] };
+  location_recorded_at: string;
+  generated_at: string;
+};
 
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/liberty';
 const EMPTY_GEOJSON = { type: 'FeatureCollection' as const, features: [] };
-const UNIT_ICON_PATH = 'M10 3h4v7h7v4h-7v7h-4v-7H3v-4h7V3Z';
-const UNIT_ICON_SVG = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="${UNIT_ICON_PATH}"/></svg>`;
-
-function UnitIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d={UNIT_ICON_PATH} />
-    </svg>
-  );
-}
 
 function freshnessFromTime(recordedAt?: string): Freshness {
   if (!recordedAt) return 'NO DATA';
@@ -100,6 +104,20 @@ function formatPlaybackTime(sample?: LocationSample): string {
   }).format(new Date(sample.recorded_at));
 }
 
+function formatETA(seconds: number): string {
+  if (seconds < 60) return '<1 min';
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder === 0 ? `${hours} hr` : `${hours} hr ${remainder} min`;
+}
+
+function formatDistance(meters: number): string {
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(meters < 10_000 ? 1 : 0)} km`;
+}
+
 function statusClass(value: Freshness): string {
   return value.toLowerCase().replace(' ', '-');
 }
@@ -125,19 +143,33 @@ function MapView({
   history,
   playbackIndex,
   focusRequest,
-  onSelect
+  planningRoute,
+  routePlan,
+  routeDestination,
+  onSelect,
+  onDestination
 }: {
   vehicles: Vehicle[];
   selectedVehicleId: string | null;
   history: LocationSample[];
   playbackIndex: number;
   focusRequest: number;
+  planningRoute: boolean;
+  routePlan: RoutePlan | null;
+  routeDestination: Destination | null;
   onSelect: (vehicleId: string) => void;
+  onDestination: (destination: Destination) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markersRef = useRef(new Map<string, Marker>());
+  const planningRef = useRef(planningRoute);
+  const destinationCallbackRef = useRef(onDestination);
+  const fittedDestinationRef = useRef('');
   const [styleReady, setStyleReady] = useState(false);
+
+  useEffect(() => { planningRef.current = planningRoute; }, [planningRoute]);
+  useEffect(() => { destinationCallbackRef.current = onDestination; }, [onDestination]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -156,6 +188,8 @@ function MapView({
       map.addSource('history-route', { type: 'geojson', data: EMPTY_GEOJSON });
       map.addSource('history-progress', { type: 'geojson', data: EMPTY_GEOJSON });
       map.addSource('playback-point', { type: 'geojson', data: EMPTY_GEOJSON });
+      map.addSource('planned-route', { type: 'geojson', data: EMPTY_GEOJSON });
+      map.addSource('route-destination', { type: 'geojson', data: EMPTY_GEOJSON });
       map.addLayer({
         id: 'history-route',
         type: 'line',
@@ -179,17 +213,53 @@ function MapView({
           'circle-stroke-width': 3
         }
       });
+      map.addLayer({
+        id: 'planned-route-casing',
+        type: 'line',
+        source: 'planned-route',
+        paint: { 'line-color': '#ffffff', 'line-width': 9, 'line-opacity': 0.9 }
+      });
+      map.addLayer({
+        id: 'planned-route-line',
+        type: 'line',
+        source: 'planned-route',
+        paint: { 'line-color': '#1a73e8', 'line-width': 6, 'line-opacity': 0.95 }
+      });
+      map.addLayer({
+        id: 'route-destination',
+        type: 'circle',
+        source: 'route-destination',
+        paint: {
+          'circle-radius': 8,
+          'circle-color': '#d93025',
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 3
+        }
+      });
       setStyleReady(true);
     });
+
+    const handleClick = (event: maplibregl.MapMouseEvent) => {
+      if (!planningRef.current) return;
+      destinationCallbackRef.current({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
+    };
+    map.on('click', handleClick);
     mapRef.current = map;
 
     return () => {
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current.clear();
+      map.off('click', handleClick);
       map.remove();
       mapRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.getCanvas().style.cursor = planningRoute ? 'crosshair' : '';
+  }, [planningRoute]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -209,7 +279,7 @@ function MapView({
         element.setAttribute('aria-label', `Select ${vehicle.vehicle_code}`);
         const symbol = document.createElement('span');
         symbol.className = 'marker-symbol';
-        symbol.innerHTML = UNIT_ICON_SVG;
+        symbol.textContent = '+';
         const label = document.createElement('span');
         label.className = 'marker-label';
         element.append(symbol, label);
@@ -259,6 +329,37 @@ function MapView({
       type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [selectedSample.longitude, selectedSample.latitude] }
     } : EMPTY_GEOJSON);
   }, [history, playbackIndex, styleReady]);
+
+  useEffect(() => {
+    if (!styleReady) return;
+    const map = mapRef.current;
+    if (!map) return;
+    const plannedRoute = map.getSource('planned-route') as GeoJSONSource | undefined;
+    const destinationSource = map.getSource('route-destination') as GeoJSONSource | undefined;
+    const routeCoordinates = routePlan?.geometry.coordinates ?? [];
+    const destination = routeDestination ?? routePlan?.destination ?? null;
+
+    plannedRoute?.setData(routeCoordinates.length > 1 ? {
+      type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: routeCoordinates }
+    } : EMPTY_GEOJSON);
+    destinationSource?.setData(destination ? {
+      type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [destination.longitude, destination.latitude] }
+    } : EMPTY_GEOJSON);
+
+    if (!routePlan || routeCoordinates.length < 2) return;
+    const destinationKey = `${routePlan.destination.latitude.toFixed(5)}:${routePlan.destination.longitude.toFixed(5)}`;
+    if (fittedDestinationRef.current === destinationKey) return;
+    fittedDestinationRef.current = destinationKey;
+    const bounds = routeCoordinates.reduce(
+      (current, coordinate) => current.extend(coordinate as [number, number]),
+      new maplibregl.LngLatBounds(routeCoordinates[0] as [number, number], routeCoordinates[0] as [number, number])
+    );
+    map.fitBounds(bounds, {
+      padding: { left: 310, right: 370, top: 100, bottom: 120 },
+      maxZoom: 15,
+      duration: 650
+    });
+  }, [routePlan, routeDestination, styleReady]);
 
   useEffect(() => {
     if (!selectedVehicleId) return;
@@ -315,14 +416,14 @@ function Login({ onAuthenticated }: { onAuthenticated: () => void }) {
           <p>Live ambulance locations and route history.</p>
         </div>
         <label>
-          <span className="field-label">Username<span className="required-mark" aria-hidden="true">*</span></span>
+          Username
           <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required />
         </label>
         <label>
-          <span className="field-label">Password<span className="required-mark" aria-hidden="true">*</span></span>
+          Password
           <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
         </label>
-        <div className="error" role="alert" aria-live="assertive">{error}</div>
+        {error && <div className="error" role="alert">{error}</div>}
         <button className="primary-button" type="submit" disabled={submitting}>{submitting ? 'Signing in…' : 'Sign in'}</button>
       </form>
     </main>
@@ -344,6 +445,11 @@ export default function App() {
   const [query, setQuery] = useState('');
   const [fleetFilter, setFleetFilter] = useState<FleetFilter>('ALL');
   const [focusRequest, setFocusRequest] = useState(0);
+  const [routeMode, setRouteMode] = useState(false);
+  const [routeDestination, setRouteDestination] = useState<Destination | null>(null);
+  const [routePlan, setRoutePlan] = useState<RoutePlan | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState('');
   const [, setClock] = useState(0);
 
   async function loadFleet() {
@@ -366,17 +472,67 @@ export default function App() {
     }
   }
 
+  const fetchRoute = useCallback(async (
+    vehicleID: string,
+    destination: Destination,
+    quiet = false
+  ) => {
+    if (!quiet) setRouteLoading(true);
+    setRouteError('');
+    try {
+      const params = new URLSearchParams({
+        lat: destination.latitude.toString(),
+        lon: destination.longitude.toString()
+      });
+      const response = await fetch(`/api/v1/vehicles/${encodeURIComponent(vehicleID)}/route?${params}`, {
+        credentials: 'same-origin'
+      });
+      if (response.status === 401) {
+        setAuthenticated(false);
+        return;
+      }
+      const body = await response.json().catch(() => ({})) as Partial<RoutePlan> & { error?: string };
+      if (!response.ok || !body.geometry || !body.duration_seconds) {
+        throw new Error(body.error || 'Route unavailable');
+      }
+      setRoutePlan(body as RoutePlan);
+    } catch (error) {
+      if (!quiet) setRoutePlan(null);
+      setRouteError(error instanceof Error ? error.message : 'Route unavailable');
+    } finally {
+      if (!quiet) setRouteLoading(false);
+    }
+  }, []);
+
+  const chooseRouteDestination = useCallback((destination: Destination) => {
+    setRouteDestination(destination);
+    setRouteMode(false);
+    if (selectedVehicleId) void fetchRoute(selectedVehicleId, destination);
+  }, [selectedVehicleId, fetchRoute]);
+
   useEffect(() => { void loadFleet(); }, []);
   useEffect(() => {
-    // Freshness buckets (freshnessFromTime) resolve at 5s/30s/120s boundaries, so a
-    // sub-5s tick buys no real precision — it only forces the whole dispatcher tree
-    // (map, fleet list, inspector) to re-render for no visible change.
-    const timer = window.setInterval(() => setClock((value) => value + 1), 5000);
+    const timer = window.setInterval(() => setClock((value) => value + 1), 1000);
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
     if (!selectedVehicleId && vehicles.length > 0) setSelectedVehicleId(vehicles[0].vehicle_id);
   }, [selectedVehicleId, vehicles]);
+
+  useEffect(() => {
+    setRouteMode(false);
+    setRouteDestination(null);
+    setRoutePlan(null);
+    setRouteError('');
+  }, [selectedVehicleId]);
+
+  useEffect(() => {
+    if (!routeDestination || !selectedVehicleId || !routePlan) return;
+    const timer = window.setInterval(() => {
+      void fetchRoute(selectedVehicleId, routeDestination, true);
+    }, 20_000);
+    return () => window.clearInterval(timer);
+  }, [routeDestination, selectedVehicleId, routePlan, fetchRoute]);
 
   useEffect(() => {
     if (!authenticated) return;
@@ -500,6 +656,13 @@ export default function App() {
     });
   }, [sortedVehicles, fleetFilter, query]);
 
+  function clearRoute() {
+    setRouteMode(false);
+    setRouteDestination(null);
+    setRoutePlan(null);
+    setRouteError('');
+  }
+
   async function logout() {
     const csrf = sessionStorage.getItem('csrf_token') ?? '';
     await fetch('/api/v1/auth/logout', {
@@ -515,7 +678,6 @@ export default function App() {
 
   return (
     <main className="dispatcher-shell">
-      <h1 className="visually-hidden">EMS Tracker dispatcher console</h1>
       <section className="dispatcher-map" aria-label="Dispatcher live map">
         <MapView
           vehicles={filteredVehicles}
@@ -523,7 +685,11 @@ export default function App() {
           history={historyOpen ? history : []}
           playbackIndex={historyOpen ? playbackIndex : -1}
           focusRequest={focusRequest}
+          planningRoute={routeMode}
+          routePlan={routePlan}
+          routeDestination={routeDestination}
           onSelect={(id) => { setSelectedVehicleId(id); setHistoryOpen(false); }}
+          onDestination={chooseRouteDestination}
         />
       </section>
 
@@ -549,10 +715,10 @@ export default function App() {
                 key={vehicle.vehicle_id}
                 onClick={() => { setSelectedVehicleId(vehicle.vehicle_id); setHistoryOpen(false); }}
               >
-                <span className={`unit-badge ${statusClass(state)}`}><UnitIcon /></span>
+                <span className={`unit-badge ${statusClass(state)}`}>+</span>
                 <span className="vehicle-copy">
                   <strong>{vehicle.vehicle_code}</strong>
-                  <small>{vehicle.label && vehicle.label !== vehicle.vehicle_code ? vehicle.label : vehicle.status}</small>
+                  <small>{vehicle.label || vehicle.status}</small>
                 </span>
                 <span className="vehicle-age">{ageLabel(vehicle.location?.recorded_at)}</span>
               </button>
@@ -567,7 +733,7 @@ export default function App() {
         </div>
       </aside>
 
-      <div className="map-top-controls" id="map-top-controls">
+      <div className="map-top-controls">
         <div className="filter-group" role="group" aria-label="Fleet filter">
           {(['ALL', 'LIVE', 'OFFLINE'] as FleetFilter[]).map((value) => (
             <button key={value} className={fleetFilter === value ? 'active' : ''} onClick={() => setFleetFilter(value)}>
@@ -578,13 +744,20 @@ export default function App() {
         <div className={socketUp ? 'realtime-pill live' : 'realtime-pill'}><span />{socketUp ? 'Live' : 'Reconnecting'}</div>
       </div>
 
+      {routeMode && (
+        <div className="route-pick-banner" role="status">
+          <div><strong>Choose destination</strong><span>Click anywhere on the map to route {selectedVehicle?.vehicle_code ?? 'this ambulance'}.</span></div>
+          <button type="button" onClick={() => setRouteMode(false)}>Cancel</button>
+        </div>
+      )}
+
       <aside className="unit-inspector">
         {selectedVehicle ? (
           <>
             <div className="inspector-head">
               <div>
                 <h2>{selectedVehicle.vehicle_code}</h2>
-                <p>{selectedVehicle.label && selectedVehicle.label !== selectedVehicle.vehicle_code ? selectedVehicle.label : 'Ambulance unit'}</p>
+                <p>{selectedVehicle.label || 'Ambulance unit'}</p>
               </div>
               <span className={`state-pill ${statusClass(freshness(selectedVehicle))}`}>
                 <i />{freshness(selectedVehicle) === 'LIVE' ? 'Online' : freshness(selectedVehicle)}
@@ -612,15 +785,47 @@ export default function App() {
               <button onClick={() => setFocusRequest((value) => value + 1)}>View on map</button>
             </div>
 
+            {(routeLoading || routePlan || routeError) && (
+              <section className={`route-card${routePlan?.approximate ? ' approximate' : ''}`} aria-label="Route and ETA">
+                <div className="route-card-head">
+                  <div><span>Route to destination</span><strong>{routeLoading && !routePlan ? 'Calculating…' : routePlan ? formatETA(routePlan.duration_seconds) : 'Unavailable'}</strong></div>
+                  {routePlan && <div className="route-distance">{formatDistance(routePlan.distance_m)}</div>}
+                </div>
+                {routePlan && (
+                  <>
+                    <div className="route-meta">
+                      <span>ETA {new Date(routePlan.eta_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span>{routePlan.approximate ? 'Approximate' : 'Road route'}</span>
+                    </div>
+                    <p>{routePlan.approximate
+                      ? 'No road router is configured or reachable, so this ETA uses live speed and straight-line distance with a road factor.'
+                      : `Road route refreshed from the ambulance's latest persisted position · ${ageLabel(routePlan.location_recorded_at)}.`}</p>
+                  </>
+                )}
+                {routeError && <p className="route-error">{routeError}</p>}
+                <div className="route-card-actions">
+                  {routeDestination && selectedVehicleId && (
+                    <button type="button" onClick={() => void fetchRoute(selectedVehicleId, routeDestination)}>Refresh</button>
+                  )}
+                  <button type="button" onClick={clearRoute}>Clear</button>
+                </div>
+              </section>
+            )}
+
             <dl className="detail-list">
               <div><dt>Heading</dt><dd>{formatBearing(selectedVehicle.location?.bearing_deg)}</dd></div>
               <div><dt>Connection</dt><dd>{selectedVehicle.connected ? 'WebSocket connected' : 'Not connected'}</dd></div>
               <div><dt>Session</dt><dd>{selectedVehicle.location?.tracking_session_id ? selectedVehicle.location.tracking_session_id.slice(0, 8) : '—'}</dd></div>
             </dl>
 
-            <div className="inspector-actions">
-              <button className="secondary-action" onClick={() => setHistoryOpen((value) => !value)}>{historyOpen ? 'Hide history' : 'View history'}</button>
-              <button className="primary-action" onClick={() => setFocusRequest((value) => value + 1)}>Center unit</button>
+            <div className="inspector-actions inspector-actions-three">
+              <button className="secondary-action" onClick={() => setHistoryOpen((value) => !value)}>{historyOpen ? 'Hide history' : 'History'}</button>
+              <button
+                className={routeMode ? 'primary-action' : 'secondary-action'}
+                disabled={!selectedVehicle.location}
+                onClick={() => { setHistoryOpen(false); setRouteMode((value) => !value); }}
+              >{routeMode ? 'Cancel route' : 'Route'}</button>
+              <button className="primary-action" onClick={() => setFocusRequest((value) => value + 1)}>Center</button>
             </div>
           </>
         ) : <div className="empty details-empty">Select an ambulance on the map.</div>}
